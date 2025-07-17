@@ -1,0 +1,69 @@
+# Makefile.in for waitlock
+# Configure-generated Makefile
+
+PACKAGE = @PACKAGE_NAME@
+VERSION = @PACKAGE_VERSION@
+BUGREPORT = @PACKAGE_BUGREPORT@
+
+# Build configuration
+CC = @CC@
+CFLAGS = @CFLAGS@ @DEFS@
+LDFLAGS = @LDFLAGS@
+LIBS = @LIBS@
+
+# Installation paths
+prefix = @prefix@
+exec_prefix = @exec_prefix@
+bindir = @bindir@
+datarootdir = @datarootdir@
+mandir = @mandir@
+sysconfdir = @sysconfdir@
+
+# Build tools
+INSTALL = @INSTALL@
+INSTALL_PROGRAM = @INSTALL_PROGRAM@
+INSTALL_DATA = @INSTALL_DATA@
+
+# Source directories
+srcdir = @srcdir@
+top_srcdir = @top_srcdir@
+VPATH = @srcdir@
+
+# Build targets
+all: waitlock
+
+waitlock:
+	$(MAKE) -C src all
+
+install: all
+	$(INSTALL) -d $(DESTDIR)$(bindir)
+	$(INSTALL_PROGRAM) src/waitlock $(DESTDIR)$(bindir)/waitlock
+	$(INSTALL) -d $(DESTDIR)$(mandir)/man1
+	$(INSTALL_DATA) doc/waitlock.1 $(DESTDIR)$(mandir)/man1/waitlock.1
+
+uninstall:
+	rm -f $(DESTDIR)$(bindir)/waitlock
+	rm -f $(DESTDIR)$(mandir)/man1/waitlock.1
+
+clean:
+	$(MAKE) -C src clean
+
+distclean: clean
+	$(MAKE) -C src distclean
+	rm -f config.log config.status config.h
+	rm -f Makefile src/Makefile
+	rm -rf autom4te.cache
+
+check: all
+	$(MAKE) -C src check
+
+test: check
+
+# Development targets
+debug: CFLAGS += -g -DDEBUG
+debug: all
+
+dist: distclean
+	cd .. && tar czf $(PACKAGE)-$(VERSION).tar.gz $(PACKAGE)-$(VERSION)
+
+.PHONY: all install uninstall clean distclean check test debug dist

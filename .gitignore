@@ -1,0 +1,28 @@
+# Build artifacts
+*.o
+*.a
+*.so
+waitlock
+config.h
+config.log
+config.status
+Makefile
+
+# Autotools
+autom4te.cache/
+aclocal.m4
+
+# Editor files
+*~
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test outputs
+test_output/
+*.log

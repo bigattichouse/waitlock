@@ -1,0 +1,323 @@
+.TH WAITLOCK 1 "2024-07-16" "waitlock 1.0.0" "User Commands"
+.SH NAME
+waitlock \- process synchronization tool for shell scripts
+
+.SH SYNOPSIS
+.B waitlock
+[\fIOPTIONS\fR] \fIDESCRIPTOR\fR
+.br
+.B waitlock
+\fB\-\-list\fR [\fB\-\-format\fR=\fIFMT\fR] [\fB\-\-all\fR|\fB\-\-stale\-only\fR]
+.br
+.B waitlock
+\fB\-\-check\fR \fIDESCRIPTOR\fR
+.br
+.B echo
+\fIDESCRIPTOR\fR | \fBwaitlock\fR [\fIOPTIONS\fR]
+
+.SH DESCRIPTION
+.B waitlock
+is a process synchronization tool designed for shell scripts and system automation. It provides named mutexes and semaphores that can be used to coordinate access to shared resources across multiple processes.
+
+The tool uses named locks identified by descriptors, which can be either simple mutexes (allowing only one holder at a time) or semaphores (allowing multiple concurrent holders). Locks are persistent across process boundaries and include comprehensive metadata such as process IDs, hostnames, and command lines for debugging and monitoring.
+
+.B waitlock
+supports both interactive use (where it waits for a signal to release the lock) and command execution mode (where it executes a command while holding the lock).
+
+.SH OPTIONS
+.TP
+.BR \-m ", " \-\-allowMultiple " " \fIN\fR
+Allow \fIN\fR concurrent holders of the lock, effectively creating a semaphore. Default is 1 (mutex behavior).
+
+.TP
+.BR \-c ", " \-\-onePerCPU
+Automatically set the number of allowed holders to match the number of CPU cores on the system.
+
+.TP
+.BR \-x ", " \-\-excludeCPUs " " \fIN\fR
+When using \fB\-\-onePerCPU\fR, reserve \fIN\fR CPU cores by reducing the number of allowed holders. This ensures some CPU cores remain available for other processes.
+
+.TP
+.BR \-t ", " \-\-timeout " " \fISECS\fR
+Set a timeout in seconds for lock acquisition. If the lock cannot be acquired within this time, the process exits with code 2. Default is infinite timeout.
+
+.TP
+.B \-\-check
+Test if the lock is available without acquiring it. Returns exit code 0 if available, 1 if held by another process.
+
+.TP
+.BR \-e ", " \-\-exec " " \fICOMMAND\fR
+Execute the specified command while holding the lock. The lock is automatically released when the command completes. All arguments after \fB\-\-exec\fR are passed to the command.
+
+.TP
+.BR \-l ", " \-\-list
+List all active locks in the system, showing their descriptors, holder PIDs, and other metadata.
+
+.TP
+.BR \-a ", " \-\-all
+When listing locks, include stale locks (held by processes that no longer exist). By default, only active locks are shown.
+
+.TP
+.B \-\-stale\-only
+Show only stale locks when listing. Useful for cleanup operations.
+
+.TP
+.BR \-f ", " \-\-format " " \fIFMT\fR
+Set the output format for lock listing. Valid formats are:
+.RS
+.TP
+.B human
+Human-readable format (default)
+.TP
+.B csv
+Comma-separated values format
+.TP
+.B null
+Null-separated format suitable for processing with \fBxargs \-0\fR
+.RE
+
+.TP
+.BR \-d ", " \-\-lock\-dir " " \fIDIR\fR
+Specify the directory where lock files are stored. By default, waitlock automatically discovers an appropriate directory (typically \fI/var/lock/waitlock\fR or \fI/tmp/waitlock\fR).
+
+.TP
+.BR \-q ", " \-\-quiet
+Suppress non-error output. Only error messages are printed.
+
+.TP
+.BR \-v ", " \-\-verbose
+Enable verbose output, showing detailed information about lock operations.
+
+.TP
+.B \-\-syslog
+Log all operations to syslog in addition to standard output.
+
+.TP
+.B \-\-syslog\-facility " " \fIFACILITY\fR
+Set the syslog facility to use. Valid facilities include: daemon, local0, local1, local2, local3, local4, local5, local6, local7, user, mail, news, uucp, cron, authpriv, syslog. Default is daemon.
+
+.TP
+.B \-\-test
+Run the internal test suite to verify waitlock functionality.
+
+.TP
+.BR \-h ", " \-\-help
+Show help message and exit.
+
+.TP
+.BR \-V ", " \-\-version
+Show version information and exit.
+
+.SH ARGUMENTS
+.TP
+.I DESCRIPTOR
+A unique identifier for the lock. Must contain only alphanumeric characters, hyphens, underscores, and dots. Maximum length is 255 characters. If not provided as an argument, waitlock will read it from standard input.
+
+.SH ENVIRONMENT
+.TP
+.B WAITLOCK_TIMEOUT
+Default timeout in seconds for lock acquisition. Can be overridden by the \fB\-\-timeout\fR option.
+
+.TP
+.B WAITLOCK_DIR
+Default directory for lock files. Can be overridden by the \fB\-\-lock\-dir\fR option.
+
+.TP
+.B WAITLOCK_DEBUG
+When set to "1", "true", or "yes", enables verbose output (equivalent to \fB\-\-verbose\fR).
+
+.TP
+.B WAITLOCK_SLOT
+Preferred slot number for semaphore locks (0 to max_holders-1). When set, waitlock will attempt to acquire the specified slot. If the preferred slot is not available, it will automatically select the next available slot. This is useful for predictable semaphore behavior and debugging.
+
+.SH EXIT STATUS
+.TP
+.B 0
+Success. Lock acquired successfully, command executed successfully, or check operation found lock available.
+
+.TP
+.B 1
+Lock is busy (held by another process) or command execution failed.
+
+.TP
+.B 2
+Timeout occurred while waiting for lock.
+
+.TP
+.B 3
+Usage error (invalid arguments or options).
+
+.TP
+.B 4
+System error (filesystem problems, permission errors, etc.).
+
+.TP
+.B 5
+Permission denied.
+
+.TP
+.B 6
+Lock directory does not exist or is inaccessible.
+
+.TP
+.B 75
+Temporary failure (try again later).
+
+.TP
+.B 126
+Command execution failed (with \fB\-\-exec\fR).
+
+.TP
+.B 127
+Command not found (with \fB\-\-exec\fR).
+
+.SH EXAMPLES
+.TP
+.B Basic mutex usage:
+.nf
+waitlock mylock &
+# ... do exclusive work ...
+kill $!
+.fi
+
+.TP
+.B Semaphore with 3 concurrent holders:
+.nf
+waitlock \-m 3 shared\-resource &
+# ... do work that can be done by up to 3 processes ...
+kill $!
+.fi
+
+.TP
+.B Execute command with lock:
+.nf
+waitlock \-e rsync source/ destination/ backup\-job
+.fi
+
+.TP
+.B CPU-based semaphore:
+.nf
+waitlock \-c \-x 2 cpu\-intensive\-job &
+# Allows (CPU_COUNT - 2) concurrent holders
+.fi
+
+.TP
+.B Check if lock is available:
+.nf
+if waitlock \-\-check mylock; then
+    echo "Lock is available"
+else
+    echo "Lock is held by another process"
+fi
+.fi
+
+.TP
+.B List all active locks:
+.nf
+waitlock \-\-list
+.fi
+
+.TP
+.B List locks in CSV format:
+.nf
+waitlock \-\-list \-\-format csv
+.fi
+
+.TP
+.B Use with timeout:
+.nf
+if waitlock \-t 30 mylock; then
+    echo "Lock acquired within 30 seconds"
+else
+    echo "Timeout waiting for lock"
+fi
+.fi
+
+.TP
+.B Use specific semaphore slot:
+.nf
+WAITLOCK_SLOT=2 waitlock \-m 5 worker\-pool &
+# Attempts to acquire slot 2 of a 5\-slot semaphore
+.fi
+
+.TP
+.B Pipeline usage:
+.nf
+echo "database\-backup" | waitlock \-t 600 \-\-syslog
+.fi
+
+.SH IMPLEMENTATION DETAILS
+.B waitlock
+uses file-based locking with comprehensive metadata storage. Lock files contain:
+.IP \(bu 2
+Process ID and parent process ID of the lock holder
+.IP \(bu 2
+User ID and hostname of the lock holder
+.IP \(bu 2
+Command line of the process that acquired the lock
+.IP \(bu 2
+Lock acquisition timestamp
+.IP \(bu 2
+Lock type (mutex or semaphore) and maximum holders
+.IP \(bu 2
+CRC32 checksum for data integrity verification
+
+Lock files are stored in a system-appropriate directory, typically \fI/var/lock/waitlock\fR for system-wide locks or \fI/tmp/waitlock\fR for user-specific locks.
+
+The tool automatically detects stale locks (held by processes that no longer exist) and handles them appropriately. Lock files include both binary and text format fallbacks for maximum compatibility.
+
+.B waitlock
+supports multiple platforms including Linux, FreeBSD, OpenBSD, NetBSD, and macOS, with platform-specific optimizations for process detection and CPU counting.
+
+.SH SIGNALS
+.B waitlock
+installs signal handlers for graceful shutdown:
+.IP \(bu 2
+.B SIGTERM, SIGINT, SIGQUIT
+Release the lock and exit cleanly
+.IP \(bu 2
+.B SIGUSR1, SIGUSR2
+Forward to child process when using \fB\-\-exec\fR mode
+
+.SH FILES
+.TP
+.I /var/lock/waitlock/
+System-wide lock directory (if writable)
+
+.TP
+.I /tmp/waitlock/
+User-specific lock directory (fallback)
+
+.TP
+.I ~/.waitlock/
+User-specific lock directory (alternative fallback)
+
+.SH NOTES
+.B waitlock
+is designed to be robust and handle various edge cases:
+.IP \(bu 2
+Automatic stale lock detection and cleanup
+.IP \(bu 2
+Graceful handling of process termination
+.IP \(bu 2
+Comprehensive error reporting and logging
+.IP \(bu 2
+Support for both interactive and batch usage
+.IP \(bu 2
+Cross-platform compatibility
+
+The tool follows POSIX standards where possible and provides compatibility layers for older systems.
+
+.SH AUTHOR
+waitlock was developed as a modern process synchronization tool for shell scripts and system automation.
+
+.SH REPORTING BUGS
+Report bugs and issues through the project's issue tracking system.
+
+.SH SEE ALSO
+.BR flock (1),
+.BR lockfile (1),
+.BR sem (1),
+.BR xargs (1),
+.BR kill (1),
+.BR syslog (3)

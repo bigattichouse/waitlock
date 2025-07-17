@@ -1,0 +1,122 @@
+# Makefile.in for waitlock/src
+# Configure-generated Makefile
+
+PACKAGE = @PACKAGE_NAME@
+VERSION = @PACKAGE_VERSION@
+
+# Build configuration
+CC = @CC@
+CFLAGS = @CFLAGS@ @DEFS@
+LDFLAGS = @LDFLAGS@
+LIBS = @LIBS@
+
+# Installation paths
+prefix = @prefix@
+exec_prefix = @exec_prefix@
+bindir = @bindir@
+
+# Build tools
+INSTALL = @INSTALL@
+INSTALL_PROGRAM = @INSTALL_PROGRAM@
+
+# Source directories
+srcdir = @srcdir@
+top_srcdir = @top_srcdir@
+VPATH = @srcdir@
+
+# Source files
+MODULES = core lock process signal checksum test
+
+# Main module
+MAIN_SRCS = waitlock.c
+MAIN_OBJS = waitlock.o
+
+# Core module
+CORE_SRCS = core/core.c
+CORE_OBJS = core/core.o
+
+# Lock module
+LOCK_SRCS = lock/lock.c
+LOCK_OBJS = lock/lock.o
+
+# Process module
+PROCESS_SRCS = process/process.c
+PROCESS_OBJS = process/process.o
+
+# Signal module
+SIGNAL_SRCS = signal/signal.c
+SIGNAL_OBJS = signal/signal.o
+
+# Checksum module
+CHECKSUM_SRCS = checksum/checksum.c
+CHECKSUM_OBJS = checksum/checksum.o
+
+# Test module
+TEST_SRCS = test/test.c
+TEST_OBJS = test/test.o
+
+# All source files
+ALL_SRCS = $(MAIN_SRCS) $(CORE_SRCS) $(LOCK_SRCS) $(PROCESS_SRCS) $(SIGNAL_SRCS) $(CHECKSUM_SRCS) $(TEST_SRCS)
+ALL_OBJS = $(MAIN_OBJS) $(CORE_OBJS) $(LOCK_OBJS) $(PROCESS_OBJS) $(SIGNAL_OBJS) $(CHECKSUM_OBJS) $(TEST_OBJS)
+
+# Main target
+TARGET = waitlock
+
+# Build rules
+all: $(TARGET)
+
+$(TARGET): $(ALL_OBJS)
+	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+# Object file rules
+waitlock.o: waitlock.c waitlock.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+core/core.o: core/core.c waitlock.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+lock/lock.o: lock/lock.c waitlock.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+process/process.o: process/process.c waitlock.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+signal/signal.o: signal/signal.c waitlock.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+checksum/checksum.o: checksum/checksum.c waitlock.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+test/test.o: test/test.c waitlock.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+# Clean targets
+clean:
+	rm -f $(ALL_OBJS) $(TARGET)
+
+distclean: clean
+	rm -f Makefile
+
+# Test targets
+check: $(TARGET)
+	@echo "Running basic tests..."
+	@./$(TARGET) --test
+	@echo "All tests passed!"
+
+test: check
+
+# Development targets
+debug: CFLAGS += -g -DDEBUG
+debug: $(TARGET)
+
+# Install targets (handled by parent Makefile)
+install: $(TARGET)
+	$(INSTALL_PROGRAM) $(TARGET) $(DESTDIR)$(bindir)/$(TARGET)
+
+# Dependency tracking
+depend:
+	$(CC) -MM $(CFLAGS) $(ALL_SRCS) > .depend
+
+-include .depend
+
+.PHONY: all clean distclean check test debug install depend
