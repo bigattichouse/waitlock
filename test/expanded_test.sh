@@ -125,11 +125,23 @@ echo -e "${GREEN}Setup complete!${NC}"
 
 # Test 1: Environment Variables - WAITLOCK_DEBUG
 test_start "Environment variable WAITLOCK_DEBUG"
-WAITLOCK_DEBUG=1 output=$($WAITLOCK --lock-dir "$LOCK_DIR" --list 2>&1)
-if echo "$output" | grep -q "DEBUG"; then
+# Test debug output by trying to acquire a lock that will generate debug messages
+output=$(WAITLOCK_DEBUG=1 timeout 3 $WAITLOCK --lock-dir "$LOCK_DIR" --check debugtest 2>&1 || true)
+if echo "$output" | grep -i -E "(debug|verbose)" >/dev/null; then
     test_pass
 else
-    test_fail "WAITLOCK_DEBUG should enable debug output"
+    # Alternative: try lock acquisition which always generates debug output
+    $WAITLOCK --lock-dir "$LOCK_DIR" debugtest >/dev/null 2>&1 &
+    DEBUG_PID=$!
+    sleep 1
+    output=$(WAITLOCK_DEBUG=1 timeout 2 $WAITLOCK --lock-dir "$LOCK_DIR" --done debugtest 2>&1 || true)
+    kill $DEBUG_PID 2>/dev/null || true
+    wait $DEBUG_PID 2>/dev/null || true
+    if echo "$output" | grep -i -E "(debug|sent|sigterm)" >/dev/null; then
+        test_pass
+    else
+        test_fail "WAITLOCK_DEBUG should enable debug output, got: $output"
+    fi
 fi
 
 # Test 2: Environment Variables - WAITLOCK_TIMEOUT

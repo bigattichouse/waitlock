@@ -333,7 +333,7 @@ if [ "$sem_count" -eq 2 ]; then
 else
     test_fail "Should have 2 semaphore holders before --done test"
     kill $DONE_SEM_PID1 $DONE_SEM_PID2 2>/dev/null || true
-fi
+}
 
 # Test 12: --done on non-existent lock
 test_start "DONE on non-existent lock"
