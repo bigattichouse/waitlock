@@ -153,12 +153,12 @@ int test_parse_args(void) {
     
     /* Test --exec flag */
     opts.descriptor = NULL;
-    opts.exec_mode = FALSE;
+    opts.exec_argv = NULL;
     
     char *test_args9[] = {"waitlock", "--exec", "echo", "hello", "test_descriptor"};
     int result9 = parse_args(5, test_args9);
     TEST_ASSERT(result9 == 0, "--exec argument parsing should succeed");
-    TEST_ASSERT(opts.exec_mode == TRUE, "--exec mode should be enabled");
+    TEST_ASSERT(opts.exec_argv != NULL, "--exec mode should be enabled");
     
     /* Test invalid arguments */
     opts.descriptor = NULL;
@@ -232,13 +232,13 @@ int test_debug_output(void) {
     TEST_START("Debug output functionality");
     
     /* Test with debug disabled */
-    opts.debug = FALSE;
+    g_state.verbose = FALSE;
     printf("  → Testing debug output (disabled):\n");
     debug("This debug message should not appear");
     TEST_ASSERT(1, "Debug output with debug disabled");
     
     /* Test with debug enabled */
-    opts.debug = TRUE;
+    g_state.verbose = TRUE;
     printf("  → Testing debug output (enabled):\n");
     debug("This debug message should appear");
     TEST_ASSERT(1, "Debug output with debug enabled");
@@ -248,7 +248,7 @@ int test_debug_output(void) {
     TEST_ASSERT(1, "Debug output with formatting");
     
     /* Reset debug state */
-    opts.debug = FALSE;
+    g_state.verbose = FALSE;
     
     return 0;
 }
@@ -258,24 +258,24 @@ int test_error_output(void) {
     TEST_START("Error output functionality");
     
     /* Test with quiet disabled */
-    opts.quiet = FALSE;
+    g_state.quiet = FALSE;
     printf("  → Testing error output (not quiet):\n");
     error(E_SYSTEM, "This error message should appear");
     TEST_ASSERT(1, "Error output with quiet disabled");
     
     /* Test with quiet enabled */
-    opts.quiet = TRUE;
+    g_state.quiet = TRUE;
     printf("  → Testing error output (quiet):\n");
     error(E_SYSTEM, "This error message should be suppressed");
     TEST_ASSERT(1, "Error output with quiet enabled");
     
     /* Test error with formatting */
-    opts.quiet = FALSE;
+    g_state.quiet = FALSE;
     error(E_USAGE, "Error message with number: %d", 42);
     TEST_ASSERT(1, "Error output with formatting");
     
     /* Reset quiet state */
-    opts.quiet = FALSE;
+    g_state.quiet = FALSE;
     
     return 0;
 }

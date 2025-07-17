@@ -204,23 +204,23 @@ int test_list_locks(void) {
     
     /* Test human format listing */
     printf("  → Testing human format listing\n");
-    list_locks(FORMAT_HUMAN, FALSE, FALSE);
+    list_locks(FMT_HUMAN, FALSE, FALSE);
     
     /* Test CSV format listing */
     printf("  → Testing CSV format listing\n");
-    list_locks(FORMAT_CSV, FALSE, FALSE);
+    list_locks(FMT_CSV, FALSE, FALSE);
     
     /* Test null format listing */
     printf("  → Testing null format listing\n");
-    list_locks(FORMAT_NULL, FALSE, FALSE);
+    list_locks(FMT_NULL, FALSE, FALSE);
     
     /* Test show all locks */
     printf("  → Testing show all locks\n");
-    list_locks(FORMAT_HUMAN, TRUE, FALSE);
+    list_locks(FMT_HUMAN, TRUE, FALSE);
     
     /* Test stale only locks */
     printf("  → Testing stale only locks\n");
-    list_locks(FORMAT_HUMAN, FALSE, TRUE);
+    list_locks(FMT_HUMAN, FALSE, TRUE);
     
     TEST_ASSERT(1, "Lock listing completed without errors");
     

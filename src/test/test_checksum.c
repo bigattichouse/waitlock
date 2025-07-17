@@ -117,7 +117,7 @@ int test_crc32_large_data(void) {
     int i;
     
     /* Fill with pattern */
-    for (i = 0; i < sizeof(large_data); i++) {
+    for (i = 0; i < (int)sizeof(large_data); i++) {
         large_data[i] = (char)(i % 256);
     }
     

@@ -47,7 +47,7 @@ int test_end_to_end_mutex(void) {
     opts.check_only = FALSE;
     opts.list_mode = FALSE;
     opts.done_mode = FALSE;
-    opts.exec_mode = FALSE;
+    opts.exec_argv = FALSE;
     
     /* Test 1: Acquire mutex lock */
     int acquire_result = acquire_lock(opts.descriptor, opts.max_holders, opts.timeout);
@@ -99,7 +99,7 @@ int test_end_to_end_semaphore(void) {
     opts.check_only = FALSE;
     opts.list_mode = FALSE;
     opts.done_mode = FALSE;
-    opts.exec_mode = FALSE;
+    opts.exec_argv = FALSE;
     
     /* Test 1: Acquire first semaphore slot */
     int acquire_result1 = acquire_lock(opts.descriptor, opts.max_holders, opts.timeout);
@@ -235,9 +235,9 @@ int test_end_to_end_exec(void) {
         /* Child process */
         opts.descriptor = test_descriptor;
         opts.max_holders = 1;
-        opts.exec_mode = TRUE;
-        
         char *argv[] = {"echo", "Hello from exec", NULL};
+        opts.exec_argv = argv;
+        
         int result = exec_with_lock(opts.descriptor, argv);
         exit(result);
     } else if (child_pid > 0) {
@@ -393,12 +393,12 @@ int test_end_to_end_list(void) {
     
     /* Test 1: List when no locks exist */
     opts.list_mode = TRUE;
-    opts.format = FORMAT_HUMAN;
+    opts.output_format = FMT_HUMAN;
     opts.show_all = FALSE;
     opts.stale_only = FALSE;
     
     printf("  → Testing list with no locks:\n");
-    list_locks(opts.format, opts.show_all, opts.stale_only);
+    list_locks(opts.output_format, opts.show_all, opts.stale_only);
     TEST_ASSERT(1, "List with no locks completed");
     
     /* Test 2: Create child process that holds lock */
@@ -423,17 +423,17 @@ int test_end_to_end_list(void) {
         
         /* Test 3: List with active lock */
         printf("  → Testing list with active lock:\n");
-        list_locks(FORMAT_HUMAN, FALSE, FALSE);
+        list_locks(FMT_HUMAN, FALSE, FALSE);
         TEST_ASSERT(1, "List with active lock completed");
         
         /* Test 4: List in CSV format */
         printf("  → Testing list in CSV format:\n");
-        list_locks(FORMAT_CSV, FALSE, FALSE);
+        list_locks(FMT_CSV, FALSE, FALSE);
         TEST_ASSERT(1, "List in CSV format completed");
         
         /* Test 5: List in null format */
         printf("  → Testing list in null format:\n");
-        list_locks(FORMAT_NULL, FALSE, FALSE);
+        list_locks(FMT_NULL, FALSE, FALSE);
         TEST_ASSERT(1, "List in null format completed");
         
         /* Test 6: Wait for child to finish */
@@ -447,7 +447,7 @@ int test_end_to_end_list(void) {
         /* Test 7: List after lock is released */
         sleep(1);
         printf("  → Testing list after lock released:\n");
-        list_locks(FORMAT_HUMAN, FALSE, FALSE);
+        list_locks(FMT_HUMAN, FALSE, FALSE);
         TEST_ASSERT(1, "List after lock released completed");
     }
     
