@@ -11,6 +11,7 @@
 - **Mutex Mode**: Single lock holder (default)
 - **Semaphore Mode**: Multiple concurrent lock holders
 - **Automatic Cleanup**: Locks released when process dies
+- **Signal-based Release**: Clean lock release with `--done` flag
 - **CPU-aware Locking**: Can scale locks to CPU count
 - **Lock Inspection**: List and check active locks
 - **Multiple Output Formats**: Human, CSV, and null-separated
@@ -32,7 +33,7 @@ sudo make install
 # Basic usage - acquire exclusive lock
 waitlock myapp &
 # ... do exclusive work ...
-kill $!
+waitlock --done myapp
 
 # Execute command with lock
 waitlock database_backup --exec "/usr/local/bin/backup.sh --daily"
@@ -132,7 +133,7 @@ echo <descriptor> | waitlock [options]
 waitlock myapp &
 JOB_PID=$!
 # ... do exclusive work ...
-kill $JOB_PID
+waitlock --done myapp
 
 # Check if lock is available
 if waitlock --check myapp; then
@@ -279,7 +280,28 @@ esac
 perform_critical_operation
 ```
 
-### 9. Resource Pool Management
+### 9. Signal-based Lock Release
+
+```bash
+#!/bin/bash
+# Clean lock release using --done flag
+
+# Start long-running process with lock
+waitlock long_running_task &
+LOCK_PID=$!
+
+# Simulate some work
+sleep 2
+
+# Later, signal the process to release the lock cleanly
+waitlock --done long_running_task
+
+# Wait for the process to exit gracefully
+wait $LOCK_PID
+echo "Process exited with code: $?"
+```
+
+### 10. Resource Pool Management
 
 ```bash
 #!/bin/bash
@@ -298,7 +320,7 @@ if [ $? -eq 0 ]; then
 fi
 ```
 
-### 10. Distributed Locking (NFS)
+### 11. Distributed Locking (NFS)
 
 ```bash
 #!/bin/bash
@@ -323,6 +345,7 @@ waitlock cluster_job --timeout 300 --exec bash -c "
 | `-x, --excludeCPUs N` | Reserve N CPUs (reduce available locks by N) |
 | `-t, --timeout SECS` | Maximum wait time before giving up |
 | `--check` | Test if lock is available without acquiring |
+| `--done` | Signal lock holder to release lock (sends SIGTERM) |
 | `-e, --exec CMD` | Execute command while holding lock |
 
 ### Output Options

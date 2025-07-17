@@ -12,6 +12,9 @@ waitlock \- process synchronization tool for shell scripts
 .B waitlock
 \fB\-\-check\fR \fIDESCRIPTOR\fR
 .br
+.B waitlock
+\fB\-\-done\fR \fIDESCRIPTOR\fR
+.br
 .B echo
 \fIDESCRIPTOR\fR | \fBwaitlock\fR [\fIOPTIONS\fR]
 
@@ -44,6 +47,10 @@ Set a timeout in seconds for lock acquisition. If the lock cannot be acquired wi
 .TP
 .B \-\-check
 Test if the lock is available without acquiring it. Returns exit code 0 if available, 1 if held by another process.
+
+.TP
+.B \-\-done
+Signal all processes holding the specified lock to release it. This sends a SIGTERM signal to lock holders, providing a clean alternative to manually killing processes. Works with both mutex and semaphore locks.
 
 .TP
 .BR \-e ", " \-\-exec " " \fICOMMAND\fR
@@ -177,7 +184,7 @@ Command not found (with \fB\-\-exec\fR).
 .nf
 waitlock mylock &
 # ... do exclusive work ...
-kill $!
+waitlock \-\-done mylock
 .fi
 
 .TP
@@ -185,7 +192,7 @@ kill $!
 .nf
 waitlock \-m 3 shared\-resource &
 # ... do work that can be done by up to 3 processes ...
-kill $!
+waitlock \-\-done shared\-resource
 .fi
 
 .TP
@@ -199,6 +206,8 @@ waitlock \-e rsync source/ destination/ backup\-job
 .nf
 waitlock \-c \-x 2 cpu\-intensive\-job &
 # Allows (CPU_COUNT - 2) concurrent holders
+# ... do work ...
+waitlock \-\-done cpu\-intensive\-job
 .fi
 
 .TP
@@ -244,6 +253,20 @@ WAITLOCK_SLOT=2 waitlock \-m 5 worker\-pool &
 .B Pipeline usage:
 .nf
 echo "database\-backup" | waitlock \-t 600 \-\-syslog
+.fi
+
+.TP
+.B Signal lock holder to release:
+.nf
+# Start a long\-running process with a lock
+waitlock long\-running\-task &
+LOCK_PID=$!
+
+# Later, signal it to release the lock cleanly
+waitlock \-\-done long\-running\-task
+
+# Wait for the process to exit
+wait $LOCK_PID
 .fi
 
 .SH IMPLEMENTATION DETAILS
