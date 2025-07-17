@@ -336,22 +336,364 @@ int test_environment_variables(void) {
     return 0;
 }
 
+/* Test core lock acquisition */
+int test_lock_acquisition(void) {
+    TEST_START("Core lock acquisition");
+    
+    char *lock_dir = find_lock_directory();
+    if (!lock_dir) {
+        printf("  ✗ FAIL: Cannot find lock directory\n");
+        fail_count++;
+        return 1;
+    }
+    
+    /* Test basic mutex acquisition */
+    const char *test_descriptor = "test_acquire_lock";
+    int result = acquire_lock(test_descriptor, 1, 0.0);
+    TEST_ASSERT(result == 0, "Should be able to acquire mutex lock");
+    
+    /* Test that same lock cannot be acquired again */
+    int result2 = acquire_lock(test_descriptor, 1, 0.1);
+    TEST_ASSERT(result2 != 0, "Should not be able to acquire same mutex lock twice");
+    
+    /* Release the lock */
+    release_lock();
+    
+    /* Test semaphore acquisition */
+    int result3 = acquire_lock("test_semaphore", 3, 0.0);
+    TEST_ASSERT(result3 == 0, "Should be able to acquire semaphore slot");
+    
+    /* Test second semaphore slot */
+    pid_t child_pid = fork();
+    if (child_pid == 0) {
+        /* Child process */
+        int child_result = acquire_lock("test_semaphore", 3, 0.5);
+        exit(child_result == 0 ? 0 : 1);
+    } else if (child_pid > 0) {
+        /* Parent process */
+        int status;
+        waitpid(child_pid, &status, 0);
+        TEST_ASSERT(WEXITSTATUS(status) == 0, "Should be able to acquire second semaphore slot");
+    }
+    
+    release_lock();
+    
+    return 0;
+}
+
+/* Test lock checking functionality */
+int test_lock_checking(void) {
+    TEST_START("Lock checking functionality");
+    
+    const char *test_descriptor = "test_check_lock";
+    
+    /* Test checking non-existent lock */
+    int result1 = check_lock(test_descriptor);
+    TEST_ASSERT(result1 == 0, "Non-existent lock should be available");
+    
+    /* Acquire lock */
+    int acquire_result = acquire_lock(test_descriptor, 1, 0.0);
+    TEST_ASSERT(acquire_result == 0, "Should be able to acquire lock");
+    
+    /* Test checking held lock */
+    int result2 = check_lock(test_descriptor);
+    TEST_ASSERT(result2 != 0, "Held lock should not be available");
+    
+    /* Release lock */
+    release_lock();
+    
+    /* Test checking released lock */
+    int result3 = check_lock(test_descriptor);
+    TEST_ASSERT(result3 == 0, "Released lock should be available");
+    
+    return 0;
+}
+
+/* Test lock release functionality */
+int test_lock_release(void) {
+    TEST_START("Lock release functionality");
+    
+    const char *test_descriptor = "test_release_lock";
+    
+    /* Acquire lock */
+    int acquire_result = acquire_lock(test_descriptor, 1, 0.0);
+    TEST_ASSERT(acquire_result == 0, "Should be able to acquire lock");
+    
+    /* Verify lock is held */
+    int check_result = check_lock(test_descriptor);
+    TEST_ASSERT(check_result != 0, "Lock should be held");
+    
+    /* Release lock */
+    release_lock();
+    
+    /* Verify lock is released */
+    int check_result2 = check_lock(test_descriptor);
+    TEST_ASSERT(check_result2 == 0, "Lock should be released");
+    
+    /* Test releasing non-existent lock (should not crash) */
+    release_lock(); /* Second release should be safe */
+    TEST_ASSERT(1, "Multiple releases should be safe");
+    
+    return 0;
+}
+
+/* Test done lock functionality */
+int test_done_lock(void) {
+    TEST_START("Done lock functionality");
+    
+    const char *test_descriptor = "test_done_lock";
+    
+    /* Test done on non-existent lock */
+    int result1 = done_lock(test_descriptor);
+    TEST_ASSERT(result1 != 0, "Done on non-existent lock should fail");
+    
+    /* Create a child process that holds a lock */
+    pid_t child_pid = fork();
+    if (child_pid == 0) {
+        /* Child process - acquire lock and wait */
+        int acquire_result = acquire_lock(test_descriptor, 1, 0.0);
+        if (acquire_result == 0) {
+            /* Wait for signal */
+            sleep(5);
+        }
+        exit(0);
+    } else if (child_pid > 0) {
+        /* Parent process */
+        sleep(1); /* Give child time to acquire lock */
+        
+        /* Verify lock is held */
+        int check_result = check_lock(test_descriptor);
+        TEST_ASSERT(check_result != 0, "Lock should be held by child");
+        
+        /* Send done signal */
+        int done_result = done_lock(test_descriptor);
+        TEST_ASSERT(done_result == 0, "Done signal should succeed");
+        
+        /* Wait for child to exit */
+        int status;
+        waitpid(child_pid, &status, 0);
+        
+        /* Verify lock is released */
+        sleep(1);
+        int check_result2 = check_lock(test_descriptor);
+        TEST_ASSERT(check_result2 == 0, "Lock should be released after done signal");
+    }
+    
+    return 0;
+}
+
+/* Test lock timeout functionality */
+int test_lock_timeout(void) {
+    TEST_START("Lock timeout functionality");
+    
+    const char *test_descriptor = "test_timeout_lock";
+    
+    /* Create a child process that holds a lock */
+    pid_t child_pid = fork();
+    if (child_pid == 0) {
+        /* Child process - acquire lock and hold it */
+        int acquire_result = acquire_lock(test_descriptor, 1, 0.0);
+        if (acquire_result == 0) {
+            sleep(3); /* Hold lock for 3 seconds */
+        }
+        exit(0);
+    } else if (child_pid > 0) {
+        /* Parent process */
+        sleep(1); /* Give child time to acquire lock */
+        
+        /* Try to acquire with short timeout */
+        time_t start_time = time(NULL);
+        int timeout_result = acquire_lock(test_descriptor, 1, 1.0);
+        time_t end_time = time(NULL);
+        
+        TEST_ASSERT(timeout_result != 0, "Lock acquisition should timeout");
+        TEST_ASSERT((end_time - start_time) >= 1, "Timeout should be respected");
+        TEST_ASSERT((end_time - start_time) <= 2, "Timeout should not be too long");
+        
+        /* Wait for child to exit */
+        int status;
+        waitpid(child_pid, &status, 0);
+    }
+    
+    return 0;
+}
+
+/* Test portable lock functionality */
+int test_portable_lock(void) {
+    TEST_START("Portable lock functionality");
+    
+    char *lock_dir = find_lock_directory();
+    if (!lock_dir) {
+        printf("  ✗ FAIL: Cannot find lock directory\n");
+        fail_count++;
+        return 1;
+    }
+    
+    char test_file[PATH_MAX];
+    snprintf(test_file, sizeof(test_file), "%s/test_portable_lock.tmp", lock_dir);
+    
+    /* Create test file */
+    int fd = open(test_file, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+    TEST_ASSERT(fd >= 0, "Should be able to create test file");
+    
+    if (fd >= 0) {
+        /* Test exclusive lock */
+        int lock_result = portable_lock(fd, LOCK_EX | LOCK_NB);
+        TEST_ASSERT(lock_result == 0, "Should be able to acquire exclusive lock");
+        
+        /* Test that another lock fails */
+        int fd2 = open(test_file, O_RDONLY);
+        if (fd2 >= 0) {
+            int lock_result2 = portable_lock(fd2, LOCK_EX | LOCK_NB);
+            TEST_ASSERT(lock_result2 != 0, "Second exclusive lock should fail");
+            close(fd2);
+        }
+        
+        /* Release lock */
+        int unlock_result = portable_lock(fd, LOCK_UN);
+        TEST_ASSERT(unlock_result == 0, "Should be able to release lock");
+        
+        close(fd);
+        unlink(test_file);
+    }
+    
+    return 0;
+}
+
+/* Test CPU count functionality */
+int test_cpu_count(void) {
+    TEST_START("CPU count functionality");
+    
+    int cpu_count = get_cpu_count();
+    TEST_ASSERT(cpu_count >= 1, "CPU count should be at least 1");
+    TEST_ASSERT(cpu_count <= 1024, "CPU count should be reasonable");
+    
+    printf("  → Detected %d CPUs\n", cpu_count);
+    
+    return 0;
+}
+
+/* Test syslog facility parsing */
+int test_syslog_facility(void) {
+    TEST_START("Syslog facility parsing");
+    
+    int daemon_facility = parse_syslog_facility("daemon");
+    TEST_ASSERT(daemon_facility == LOG_DAEMON, "Should parse daemon facility");
+    
+    int local0_facility = parse_syslog_facility("local0");
+    TEST_ASSERT(local0_facility == LOG_LOCAL0, "Should parse local0 facility");
+    
+    int local7_facility = parse_syslog_facility("local7");
+    TEST_ASSERT(local7_facility == LOG_LOCAL7, "Should parse local7 facility");
+    
+    int invalid_facility = parse_syslog_facility("invalid");
+    TEST_ASSERT(invalid_facility == -1, "Should reject invalid facility");
+    
+    return 0;
+}
+
+/* Test text lock file format */
+int test_text_lock_file(void) {
+    TEST_START("Text lock file format");
+    
+    char *lock_dir = find_lock_directory();
+    if (!lock_dir) {
+        printf("  ✗ FAIL: Cannot find lock directory\n");
+        fail_count++;
+        return 1;
+    }
+    
+    char test_file[PATH_MAX];
+    snprintf(test_file, sizeof(test_file), "%s/test_text_lock.tmp", lock_dir);
+    
+    /* Create test lock info */
+    struct lock_info write_info;
+    memset(&write_info, 0, sizeof(write_info));
+    
+    write_info.magic = LOCK_MAGIC;
+    write_info.version = 1;
+    write_info.pid = getpid();
+    write_info.ppid = getppid();
+    write_info.uid = getuid();
+    write_info.acquired_at = time(NULL);
+    write_info.lock_type = 0;
+    write_info.max_holders = 1;
+    write_info.slot = 0;
+    
+    strcpy(write_info.hostname, "testhost");
+    strcpy(write_info.descriptor, "test_text_descriptor");
+    strcpy(write_info.cmdline, "test_text_command");
+    
+    write_info.checksum = calculate_lock_checksum(&write_info);
+    
+    /* Write text lock file */
+    int write_result = write_text_lock_file(test_file, &write_info);
+    TEST_ASSERT(write_result == 0, "Should be able to write text lock file");
+    
+    /* Read text lock file */
+    struct lock_info read_info;
+    int read_result = read_text_lock_file(test_file, &read_info);
+    TEST_ASSERT(read_result == 0, "Should be able to read text lock file");
+    
+    if (read_result == 0) {
+        TEST_ASSERT(read_info.pid == write_info.pid, "PID should match");
+        TEST_ASSERT(strcmp(read_info.descriptor, write_info.descriptor) == 0, "Descriptor should match");
+        TEST_ASSERT(strcmp(read_info.hostname, write_info.hostname) == 0, "Hostname should match");
+    }
+    
+    /* Clean up */
+    unlink(test_file);
+    
+    return 0;
+}
+
+/* Include modular test headers */
+extern int run_lock_tests(void);
+extern int run_process_tests(void);
+extern int run_signal_tests(void);
+extern int run_core_tests(void);
+extern int run_checksum_tests(void);
+extern int run_integration_tests(void);
+
 /* Main unit test runner */
 int run_unit_tests(void) {
-    printf("=== WAITLOCK UNIT TEST SUITE ===\n");
-    printf("Testing individual components...\n");
+    printf("=== WAITLOCK COMPREHENSIVE UNIT TEST SUITE ===\n");
+    printf("Testing all components with modular test suites...\n");
     
-    test_lock_directory();
-    test_checksum();
-    test_process_detection();
-    test_lock_info_structure();
-    test_lock_file_io();
-    test_argument_parsing();
-    test_directory_scanning();
-    test_signal_handlers();
-    test_environment_variables();
+    int total_failures = 0;
     
-    TEST_SUMMARY();
+    /* Run modular test suites */
+    printf("\n============================================================\n");
+    total_failures += run_checksum_tests();
     
-    return (fail_count > 0) ? 1 : 0;
+    printf("\n============================================================\n");
+    total_failures += run_core_tests();
+    
+    printf("\n============================================================\n");
+    total_failures += run_process_tests();
+    
+    printf("\n============================================================\n");
+    total_failures += run_signal_tests();
+    
+    printf("\n============================================================\n");
+    total_failures += run_lock_tests();
+    
+    printf("\n============================================================\n");
+    total_failures += run_integration_tests();
+    
+    /* Overall summary */
+    printf("\n");
+    printf("============================================================\n");
+    printf("=== OVERALL UNIT TEST SUMMARY ===\n");
+    printf("Test suites completed: 6\n");
+    if (total_failures == 0) {
+        printf("🎉 ALL UNIT TESTS PASSED! 🎉\n");
+        printf("The waitlock implementation is ready for testing!\n");
+    } else {
+        printf("❌ %d TEST SUITE(S) FAILED ❌\n", total_failures);
+        printf("Please review the failures above and fix the issues.\n");
+    }
+    printf("============================================================\n");
+    
+    return (total_failures > 0) ? 1 : 0;
 }
