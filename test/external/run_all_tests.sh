@@ -58,8 +58,9 @@ main() {
     echo ""
     
     # Check if waitlock binary exists
-    if ! command -v waitlock >/dev/null 2>&1; then
-        echo -e "${RED}Error: waitlock binary not found in PATH${NC}"
+    WAITLOCK_BINARY="../../build/bin/waitlock"
+    if [ ! -x "$WAITLOCK_BINARY" ]; then
+        echo -e "${RED}Error: waitlock binary not found: $WAITLOCK_BINARY${NC}"
         echo "Please build waitlock first: make"
         exit 1
     fi
@@ -94,6 +95,8 @@ main() {
     # Run all tests
     for test_file in "${TEST_FILES[@]}"; do
         if [ -f "$test_file" ]; then
+            # Export the waitlock path for subtests
+            export WAITLOCK_BINARY="$WAITLOCK_BINARY"
             run_test_file "./$test_file"
         else
             echo -e "${RED}Warning: Test file $test_file not found${NC}"

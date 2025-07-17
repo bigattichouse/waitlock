@@ -2,7 +2,7 @@
 # Test framework for external waitlock tests
 
 # Configuration
-WAITLOCK="../../build/bin/waitlock"
+WAITLOCK="${WAITLOCK_BINARY:-../../build/bin/waitlock}"
 TEST_DIR="${TEST_DIR:-/tmp/waitlock_external_test_$$}"
 LOCK_DIR="$TEST_DIR/locks"
 
