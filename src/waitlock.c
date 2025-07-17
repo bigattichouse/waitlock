@@ -66,7 +66,7 @@ int main(int argc, char *argv[]) {
     
     /* Handle different modes */
     if (opts.test_mode) {
-        return run_all_tests();
+        return run_unit_tests();
     }
     
     if (opts.list_mode) {

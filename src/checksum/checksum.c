@@ -3,6 +3,7 @@
  */
 
 #include "checksum.h"
+#include <stddef.h>  /* for offsetof */
 
 /* CRC32 lookup table for fast checksum calculation */
 static const uint32_t crc32_table[256] = {
@@ -67,7 +68,8 @@ uint32_t calculate_crc32(const void *data, size_t len) {
 /* Calculate checksum for lock_info structure (excluding checksum field) */
 uint32_t calculate_lock_checksum(const struct lock_info *info) {
     /* Calculate checksum of everything except the checksum field itself */
-    size_t data_size = sizeof(struct lock_info) - sizeof(info->checksum);
+    /* The checksum field is at the end, so we calculate checksum of the struct minus the checksum field */
+    size_t data_size = offsetof(struct lock_info, checksum);
     return calculate_crc32(info, data_size);
 }
 

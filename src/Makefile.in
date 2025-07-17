@@ -57,8 +57,8 @@ CHECKSUM_SRCS = checksum/checksum.c
 CHECKSUM_OBJS = $(OBJDIR)/checksum.o
 
 # Test module
-TEST_SRCS = test/test.c
-TEST_OBJS = $(OBJDIR)/test.o
+TEST_SRCS = test/test.c test/unit_tests.c
+TEST_OBJS = $(OBJDIR)/test.o $(OBJDIR)/unit_tests.o
 
 # All source files
 ALL_SRCS = $(MAIN_SRCS) $(CORE_SRCS) $(LOCK_SRCS) $(PROCESS_SRCS) $(SIGNAL_SRCS) $(CHECKSUM_SRCS) $(TEST_SRCS)
@@ -100,6 +100,10 @@ $(OBJDIR)/checksum.o: checksum/checksum.c waitlock.h
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(OBJDIR)/test.o: test/test.c waitlock.h
+	mkdir -p $(OBJDIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(OBJDIR)/unit_tests.o: test/unit_tests.c waitlock.h
 	mkdir -p $(OBJDIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
