@@ -8,6 +8,9 @@ config.log
 config.status
 Makefile
 
+# Build directories
+build/
+
 # Autotools
 autom4te.cache/
 aclocal.m4

@@ -141,6 +141,9 @@ int parse_args(int argc, char *argv[]) {
         else if (strcmp(argv[i], "--check") == 0) {
             opts.check_only = TRUE;
         }
+        else if (strcmp(argv[i], "--done") == 0) {
+            opts.done_mode = TRUE;
+        }
         else if (strcmp(argv[i], "-l") == 0 || strcmp(argv[i], "--list") == 0) {
             opts.list_mode = TRUE;
         }
@@ -275,6 +278,7 @@ void usage(FILE *stream) {
     fprintf(stream, "Usage: waitlock [options] <descriptor>\n");
     fprintf(stream, "       waitlock --list [--format=<fmt>] [--all|--stale-only]\n");
     fprintf(stream, "       waitlock --check <descriptor>\n");
+    fprintf(stream, "       waitlock --done <descriptor>\n");
     fprintf(stream, "       echo <descriptor> | waitlock [options]\n");
     fprintf(stream, "\n");
     fprintf(stream, "Process synchronization tool for shell scripts.\n");
@@ -285,6 +289,7 @@ void usage(FILE *stream) {
     fprintf(stream, "  -x, --excludeCPUs N      Reserve N CPUs (with --onePerCPU)\n");
     fprintf(stream, "  -t, --timeout SECS       Timeout in seconds (default: infinite)\n");
     fprintf(stream, "  --check                  Test if lock is available\n");
+    fprintf(stream, "  --done                   Signal lock holder to release lock\n");
     fprintf(stream, "  -e, --exec CMD           Execute command while holding lock\n");
     fprintf(stream, "  -l, --list               List active locks\n");
     fprintf(stream, "  -a, --all                Include stale locks in list\n");

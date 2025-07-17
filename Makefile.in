@@ -29,15 +29,21 @@ srcdir = @srcdir@
 top_srcdir = @top_srcdir@
 VPATH = @srcdir@
 
-# Build targets
-all: waitlock
+# Build directories
+BUILDDIR = build
+BINDIR = $(BUILDDIR)/bin
+OBJDIR = $(BUILDDIR)/obj
 
-waitlock:
-	$(MAKE) -C src all
+# Build targets
+all: $(BINDIR)/waitlock
+
+$(BINDIR)/waitlock:
+	mkdir -p $(BINDIR) $(OBJDIR)
+	$(MAKE) -C src all BUILDDIR=../$(BUILDDIR) BINDIR=../$(BINDIR) OBJDIR=../$(OBJDIR)
 
 install: all
 	$(INSTALL) -d $(DESTDIR)$(bindir)
-	$(INSTALL_PROGRAM) src/waitlock $(DESTDIR)$(bindir)/waitlock
+	$(INSTALL_PROGRAM) $(BINDIR)/waitlock $(DESTDIR)$(bindir)/waitlock
 	$(INSTALL) -d $(DESTDIR)$(mandir)/man1
 	$(INSTALL_DATA) doc/waitlock.1 $(DESTDIR)$(mandir)/man1/waitlock.1
 
@@ -47,6 +53,7 @@ uninstall:
 
 clean:
 	$(MAKE) -C src clean
+	rm -rf $(BUILDDIR)
 
 distclean: clean
 	$(MAKE) -C src distclean
@@ -55,7 +62,7 @@ distclean: clean
 	rm -rf autom4te.cache
 
 check: all
-	$(MAKE) -C src check
+	$(MAKE) -C src check BUILDDIR=../$(BUILDDIR) BINDIR=../$(BINDIR) OBJDIR=../$(OBJDIR)
 
 test: check
 

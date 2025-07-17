@@ -132,6 +132,7 @@ struct options {
     double timeout;
     bool check_only;
     bool list_mode;
+    bool done_mode;
     bool show_all;
     bool stale_only;
     output_format_t output_format;
@@ -159,6 +160,7 @@ int acquire_lock(const char *descriptor, int max_holders, double timeout);
 void release_lock(void);
 int check_lock(const char *descriptor);
 int list_locks(output_format_t format, bool show_all, bool stale_only);
+int done_lock(const char *descriptor);
 int portable_lock(int fd, int operation);
 
 /* Function prototypes from process module */

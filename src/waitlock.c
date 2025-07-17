@@ -29,6 +29,7 @@ struct options opts = {
     -1.0,      /* timeout (infinite) */
     FALSE,     /* check_only */
     FALSE,     /* list_mode */
+    FALSE,     /* done_mode */
     FALSE,     /* show_all */
     FALSE,     /* stale_only */
     FMT_HUMAN, /* output_format */
@@ -74,6 +75,10 @@ int main(int argc, char *argv[]) {
     
     if (opts.check_only) {
         return check_lock(opts.descriptor);
+    }
+    
+    if (opts.done_mode) {
+        return done_lock(opts.descriptor);
     }
     
     if (opts.exec_argv) {

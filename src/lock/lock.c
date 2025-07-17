@@ -717,3 +717,113 @@ int read_lock_file_any_format(const char *path, struct lock_info *info) {
     
     return -1;  /* Both formats failed */
 }
+
+/* Signal a waiting process to release its lock */
+int done_lock(const char *descriptor) {
+    char *lock_dir;
+    char lock_path[PATH_MAX];
+    DIR *dir;
+    struct dirent *entry;
+    struct lock_info info;
+    size_t desc_len;
+    int found_locks = 0;
+    int released_locks = 0;
+    
+    /* Find lock directory */
+    lock_dir = find_lock_directory();
+    if (!lock_dir) {
+        error(E_NODIR, "Cannot find or create lock directory");
+        return E_NODIR;
+    }
+    
+    /* Open lock directory */
+    dir = opendir(lock_dir);
+    if (!dir) {
+        error(E_SYSTEM, "Cannot open lock directory %s: %s", lock_dir, strerror(errno));
+        return E_SYSTEM;
+    }
+    
+    desc_len = strlen(descriptor);
+    
+    /* Search for lock files matching the descriptor */
+    while ((entry = readdir(dir)) != NULL) {
+        /* Skip . and .. entries */
+        if (entry->d_name[0] == '.') {
+            continue;
+        }
+        
+        /* Check if this file matches our descriptor pattern */
+        if (strncmp(entry->d_name, descriptor, desc_len) == 0 &&
+            (entry->d_name[desc_len] == '.' || entry->d_name[desc_len] == '\0') &&
+            strstr(entry->d_name, ".lock")) {
+            
+            /* Construct full path */
+            safe_snprintf(lock_path, sizeof(lock_path), "%s/%s", lock_dir, entry->d_name);
+            
+            /* Read lock file information */
+            if (read_lock_file_any_format(lock_path, &info) == 0) {
+                /* Validate checksum */
+                if (validate_lock_checksum(&info)) {
+                    found_locks++;
+                    
+                    /* Check if process is still alive */
+                    if (process_exists(info.pid)) {
+                        /* Send SIGTERM to the process */
+                        if (kill(info.pid, SIGTERM) == 0) {
+                            debug("Sent SIGTERM to process %d for lock %s", info.pid, descriptor);
+                            released_locks++;
+                            
+                            /* Log to syslog if enabled */
+                            if (g_state.use_syslog) {
+#ifdef HAVE_SYSLOG_H
+                                openlog("waitlock", LOG_PID, g_state.syslog_facility);
+                                syslog(LOG_INFO, "signaled process %d to release lock '%s'", info.pid, descriptor);
+                                closelog();
+#endif
+                            }
+                        } else {
+                            debug("Failed to send SIGTERM to process %d: %s", info.pid, strerror(errno));
+                            
+                            /* If signal failed, check if process is actually gone */
+                            if (!process_exists(info.pid)) {
+                                debug("Process %d no longer exists, removing stale lock", info.pid);
+                                unlink(lock_path);
+                                released_locks++;
+                            }
+                        }
+                    } else {
+                        /* Process is dead, remove stale lock */
+                        debug("Process %d no longer exists, removing stale lock", info.pid);
+                        unlink(lock_path);
+                        released_locks++;
+                    }
+                } else {
+                    debug("Invalid checksum in lock file %s, removing", lock_path);
+                    unlink(lock_path);
+                }
+            } else {
+                debug("Failed to read lock file %s, removing", lock_path);
+                unlink(lock_path);
+            }
+        }
+    }
+    
+    closedir(dir);
+    
+    if (found_locks == 0) {
+        if (!g_state.quiet) {
+            error(E_NOTFOUND, "No locks found for descriptor '%s'", descriptor);
+        }
+        return E_NOTFOUND;
+    }
+    
+    if (released_locks == 0) {
+        if (!g_state.quiet) {
+            error(E_SYSTEM, "Failed to release any locks for descriptor '%s'", descriptor);
+        }
+        return E_SYSTEM;
+    }
+    
+    debug("Released %d lock(s) for descriptor '%s'", released_locks, descriptor);
+    return E_SUCCESS;
+}

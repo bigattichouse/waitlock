@@ -24,75 +24,90 @@ srcdir = @srcdir@
 top_srcdir = @top_srcdir@
 VPATH = @srcdir@
 
+# Build directories (can be overridden)
+BUILDDIR ?= .
+BINDIR ?= .
+OBJDIR ?= .
+
 # Source files
 MODULES = core lock process signal checksum test
 
 # Main module
 MAIN_SRCS = waitlock.c
-MAIN_OBJS = waitlock.o
+MAIN_OBJS = $(OBJDIR)/waitlock.o
 
 # Core module
 CORE_SRCS = core/core.c
-CORE_OBJS = core/core.o
+CORE_OBJS = $(OBJDIR)/core.o
 
 # Lock module
 LOCK_SRCS = lock/lock.c
-LOCK_OBJS = lock/lock.o
+LOCK_OBJS = $(OBJDIR)/lock.o
 
 # Process module
 PROCESS_SRCS = process/process.c
-PROCESS_OBJS = process/process.o
+PROCESS_OBJS = $(OBJDIR)/process.o
 
 # Signal module
 SIGNAL_SRCS = signal/signal.c
-SIGNAL_OBJS = signal/signal.o
+SIGNAL_OBJS = $(OBJDIR)/signal.o
 
 # Checksum module
 CHECKSUM_SRCS = checksum/checksum.c
-CHECKSUM_OBJS = checksum/checksum.o
+CHECKSUM_OBJS = $(OBJDIR)/checksum.o
 
 # Test module
 TEST_SRCS = test/test.c
-TEST_OBJS = test/test.o
+TEST_OBJS = $(OBJDIR)/test.o
 
 # All source files
 ALL_SRCS = $(MAIN_SRCS) $(CORE_SRCS) $(LOCK_SRCS) $(PROCESS_SRCS) $(SIGNAL_SRCS) $(CHECKSUM_SRCS) $(TEST_SRCS)
 ALL_OBJS = $(MAIN_OBJS) $(CORE_OBJS) $(LOCK_OBJS) $(PROCESS_OBJS) $(SIGNAL_OBJS) $(CHECKSUM_OBJS) $(TEST_OBJS)
 
 # Main target
-TARGET = waitlock
+TARGET = $(BINDIR)/waitlock
 
 # Build rules
 all: $(TARGET)
 
 $(TARGET): $(ALL_OBJS)
+	mkdir -p $(BINDIR)
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 # Object file rules
-waitlock.o: waitlock.c waitlock.h
+$(OBJDIR)/waitlock.o: waitlock.c waitlock.h
+	mkdir -p $(OBJDIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-core/core.o: core/core.c waitlock.h
+$(OBJDIR)/core.o: core/core.c waitlock.h
+	mkdir -p $(OBJDIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-lock/lock.o: lock/lock.c waitlock.h
+$(OBJDIR)/lock.o: lock/lock.c waitlock.h
+	mkdir -p $(OBJDIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-process/process.o: process/process.c waitlock.h
+$(OBJDIR)/process.o: process/process.c waitlock.h
+	mkdir -p $(OBJDIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-signal/signal.o: signal/signal.c waitlock.h
+$(OBJDIR)/signal.o: signal/signal.c waitlock.h
+	mkdir -p $(OBJDIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-checksum/checksum.o: checksum/checksum.c waitlock.h
+$(OBJDIR)/checksum.o: checksum/checksum.c waitlock.h
+	mkdir -p $(OBJDIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-test/test.o: test/test.c waitlock.h
+$(OBJDIR)/test.o: test/test.c waitlock.h
+	mkdir -p $(OBJDIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 # Clean targets
 clean:
 	rm -f $(ALL_OBJS) $(TARGET)
+	if [ "$(OBJDIR)" != "." ]; then rm -rf $(OBJDIR); fi
+	if [ "$(BINDIR)" != "." ]; then rm -rf $(BINDIR); fi
 
 distclean: clean
 	rm -f Makefile
@@ -100,7 +115,7 @@ distclean: clean
 # Test targets
 check: $(TARGET)
 	@echo "Running basic tests..."
-	@./$(TARGET) --test
+	@$(TARGET) --test
 	@echo "All tests passed!"
 
 test: check
