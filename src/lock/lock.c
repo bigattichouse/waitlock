@@ -60,7 +60,7 @@ char* find_lock_directory(void) {
     }
     
     /* Last resort: current directory */
-    strcpy(lock_dir, "./waitlock");
+    safe_snprintf(lock_dir, sizeof(lock_dir), "./waitlock");
     if (access(lock_dir, W_OK) == 0) {
         return lock_dir;
     }
@@ -103,7 +103,7 @@ int acquire_lock(const char *descriptor, int max_holders, double timeout) {
     int fd;
     struct timeval start_time, now;
     double elapsed;
-    int wait_ms = 10;
+    int wait_ms = INITIAL_WAIT_MS;
     bool contention_logged = FALSE;
     
     /* Find lock directory */
@@ -119,7 +119,7 @@ int acquire_lock(const char *descriptor, int max_holders, double timeout) {
     /* Get hostname */
     debug("DEBUG: Getting hostname...");
     if (gethostname(hostname, sizeof(hostname)) != 0) {
-        strcpy(hostname, "unknown");
+        safe_snprintf(hostname, sizeof(hostname), "unknown");
     }
     hostname[sizeof(hostname) - 1] = '\0';
     debug("DEBUG: Hostname: %s", hostname);
@@ -348,7 +348,7 @@ int acquire_lock(const char *descriptor, int max_holders, double timeout) {
                 portable_lock(g_state.lock_fd, LOCK_EX);
             }
             
-            strcpy(g_state.lock_path, lock_path);
+            safe_snprintf(g_state.lock_path, sizeof(g_state.lock_path), "%s", lock_path);
             
             /* Log to syslog if requested */
             if (g_state.use_syslog) {
@@ -469,7 +469,7 @@ int acquire_lock(const char *descriptor, int max_holders, double timeout) {
                 return E_TIMEOUT;
             }
             /* Limit sleep to remaining timeout (with small margin) */
-            int max_sleep_ms = (int)(remaining * 1000 * 0.9); /* 90% of remaining */
+            int max_sleep_ms = (int)(remaining * 1000 * TIMEOUT_FACTOR); /* 90% of remaining */
             if (max_sleep_ms < sleep_ms) {
                 sleep_ms = max_sleep_ms;
             }
@@ -478,7 +478,7 @@ int acquire_lock(const char *descriptor, int max_holders, double timeout) {
         
         usleep(sleep_ms * 1000);
         wait_ms = wait_ms * 2;
-        if (wait_ms > 1000) wait_ms = 1000;
+        if (wait_ms > MAX_WAIT_MS) wait_ms = MAX_WAIT_MS;
         
         /* Add jitter */
         wait_ms += rand() % (wait_ms / 10 + 1);

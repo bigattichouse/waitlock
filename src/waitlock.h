@@ -81,6 +81,11 @@
 #define E_EXEC       126
 #define E_NOTFOUND   127
 
+/* Timing configuration constants */
+#define INITIAL_WAIT_MS     10      /* Initial wait time in milliseconds */
+#define MAX_WAIT_MS         1000    /* Maximum wait time in milliseconds */
+#define TIMEOUT_FACTOR      0.9     /* Factor for timeout calculation */
+
 /* Boolean type for C89 */
 typedef int bool;
 #define TRUE 1
@@ -121,6 +126,8 @@ struct global_state {
     bool use_syslog;
     int syslog_facility;
     volatile pid_t child_pid;  /* For signal forwarding in exec mode */
+    volatile sig_atomic_t received_signal;  /* Signal received */
+    volatile sig_atomic_t cleanup_needed;   /* Cleanup needed flag */
 };
 
 /* Command line options structure */

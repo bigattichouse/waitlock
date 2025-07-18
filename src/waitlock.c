@@ -15,9 +15,9 @@
 
 /* Global state for signal handlers */
 #ifdef HAVE_SYSLOG_H
-struct global_state g_state = { -1, "", 0, FALSE, FALSE, FALSE, LOG_DAEMON, 0 };
+struct global_state g_state = { -1, "", 0, FALSE, FALSE, FALSE, LOG_DAEMON, 0, 0, 0 };
 #else
-struct global_state g_state = { -1, "", 0, FALSE, FALSE, FALSE, 0, 0 };
+struct global_state g_state = { -1, "", 0, FALSE, FALSE, FALSE, 0, 0, 0, 0 };
 #endif
 
 /* Command line options */
