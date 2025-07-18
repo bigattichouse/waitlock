@@ -11,18 +11,17 @@ mkdir -p "$TEST_DIR"
 # Test 1: Check if hang occurs with non-existent lock (should succeed immediately)
 echo "Test 1: Non-existent lock (should succeed immediately)"
 start_time=$(date +%s.%N)
-timeout 2 ../../build/bin/waitlock --lock-dir "$TEST_DIR" --timeout 0.1 test_nonexistent &
-TEST_PID=$!
-sleep 0.5
+# Use foreground execution with timeout wrapper
+timeout 2 ../../build/bin/waitlock --lock-dir "$TEST_DIR" --timeout 0.1 test_nonexistent >/dev/null 2>&1
+exit_code=$?
+end_time=$(date +%s.%N)
+duration=$(echo "$end_time - $start_time" | bc -l)
 
-if kill -0 $TEST_PID 2>/dev/null; then
-    echo "❌ Process still running after 0.5s - HANGING"
-    kill -9 $TEST_PID 2>/dev/null || true
+if [ $exit_code -eq 124 ]; then
+    echo "❌ Process timed out after 2s - HANGING"
     echo "   This suggests hang occurs BEFORE timeout logic"
 else
-    end_time=$(date +%s.%N)
-    duration=$(echo "$end_time - $start_time" | bc -l)
-    echo "✅ Process completed in ${duration}s"
+    echo "✅ Process completed in ${duration}s (exit code: $exit_code)"
 fi
 
 echo ""

@@ -168,15 +168,10 @@ facilities=("daemon" "local0" "local1" "local2" "local3" "local4" "local5" "loca
 facility_test_passed=true
 
 for facility in "${facilities[@]}"; do
-    if ! timeout 5 $WAITLOCK --lock-dir "$LOCK_DIR" --syslog --syslog-facility "$facility" "testlog_$facility" > /dev/null 2>&1 &
-    then
+    if ! timeout 5 $WAITLOCK --lock-dir "$LOCK_DIR" --syslog --syslog-facility "$facility" "testlog_$facility" --exec echo "test" > /dev/null 2>&1; then
         facility_test_passed=false
         break
     fi
-    SYSLOG_PID=$!
-    sleep 0.5
-    kill $SYSLOG_PID 2>/dev/null || true
-    wait $SYSLOG_PID 2>/dev/null || true
 done
 
 if [ "$facility_test_passed" = true ]; then
