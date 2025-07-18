@@ -107,18 +107,22 @@ int acquire_lock(const char *descriptor, int max_holders, double timeout) {
     bool contention_logged = FALSE;
     
     /* Find lock directory */
+    debug("DEBUG: Finding lock directory...");
     lock_dir = find_lock_directory();
     if (!lock_dir) {
         error(E_NODIR, "Cannot find or create lock directory (tried: %s, %s, %s, %s)", 
               "/var/lock/waitlock", "/tmp/waitlock", "/tmp", "./waitlock");
         return E_NODIR;
     }
+    debug("DEBUG: Lock directory found: %s", lock_dir);
     
     /* Get hostname */
+    debug("DEBUG: Getting hostname...");
     if (gethostname(hostname, sizeof(hostname)) != 0) {
         strcpy(hostname, "unknown");
     }
     hostname[sizeof(hostname) - 1] = '\0';
+    debug("DEBUG: Hostname: %s", hostname);
     
     /* Prepare lock info */
     memset(&info, 0, sizeof(info));
@@ -137,21 +141,27 @@ int acquire_lock(const char *descriptor, int max_holders, double timeout) {
     info.descriptor[sizeof(info.descriptor) - 1] = '\0';
     
     /* Get command line */
+    debug("DEBUG: Getting command line...");
     char *cmdline = get_process_cmdline(info.pid);
     if (cmdline) {
         strncpy(info.cmdline, cmdline, sizeof(info.cmdline) - 1);
     }
+    debug("DEBUG: Command line obtained");
     
     /* Try to acquire lock */
+    debug("DEBUG: Starting lock acquisition...");
     gettimeofday(&start_time, NULL);
     
     while (1) {
-        /* Clean up stale locks first */
+        /* Clean up stale locks first and count active locks */
+        debug("DEBUG: Opening lock directory...");
+        int active_locks = 0;
         dir = opendir(lock_dir);
         if (dir) {
             while ((entry = readdir(dir)) != NULL) {
                 /* Check if this is a lock file for our descriptor */
                 size_t desc_len = strlen(descriptor);
+                debug("DEBUG: Checking entry: %s", entry->d_name);
                 if (strncmp(entry->d_name, descriptor, desc_len) == 0 &&
                     (entry->d_name[desc_len] == '.' || entry->d_name[desc_len] == '\0') &&
                     strstr(entry->d_name, ".lock")) {
@@ -159,13 +169,21 @@ int acquire_lock(const char *descriptor, int max_holders, double timeout) {
                     struct lock_info check_info;
                     bool is_stale = FALSE;
                     
+                    debug("DEBUG: Found matching lock file: %s", entry->d_name);
                     safe_snprintf(check_path, sizeof(check_path), "%s/%s", 
                                   lock_dir, entry->d_name);
                     
+                    debug("DEBUG: Reading lock file: %s", check_path);
                     if (read_lock_file_any_format(check_path, &check_info) == 0) {
+                        debug("DEBUG: Lock file read successfully");
                         if (check_info.magic == LOCK_MAGIC && validate_lock_checksum(&check_info)) {
+                            debug("DEBUG: Valid lock file, checking if process %d exists...", check_info.pid);
                             if (!process_exists(check_info.pid)) {
+                                debug("DEBUG: Process %d does not exist - marking as stale", check_info.pid);
                                 is_stale = TRUE;
+                            } else {
+                                debug("DEBUG: Process %d exists - lock is active", check_info.pid);
+                                active_locks++;
                             }
                         } else if (check_info.magic == LOCK_MAGIC) {
                             /* Corrupted lock file - treat as stale */
@@ -206,13 +224,26 @@ int acquire_lock(const char *descriptor, int max_holders, double timeout) {
             closedir(dir);
         }
         
+        debug("DEBUG: Found %d active locks, max_holders=%d", active_locks, max_holders);
+        
+        /* Check if all slots are occupied */
+        if (active_locks >= max_holders) {
+            debug("DEBUG: All slots occupied (%d/%d), checking timeout...", active_locks, max_holders);
+            /* No available slots - continue to timeout check */
+        } else {
+            debug("DEBUG: Slots available (%d/%d), attempting to claim slot...", active_locks, max_holders);
+        }
+        
         /* Try to claim an available slot atomically */
         int slot_claimed = -1;
-        int start_slot = (opts.preferred_slot >= 0 && opts.preferred_slot < max_holders) ? opts.preferred_slot : 0;
-        int slot_attempt, try_slot;
         
-        /* Try each slot in sequence, starting with preferred slot */
-        for (slot_attempt = 0; slot_attempt < max_holders; slot_attempt++) {
+        /* Only try to claim a slot if slots are available */
+        if (active_locks < max_holders) {
+            int start_slot = (opts.preferred_slot >= 0 && opts.preferred_slot < max_holders) ? opts.preferred_slot : 0;
+            int slot_attempt, try_slot;
+            
+            /* Try each slot in sequence, starting with preferred slot */
+            for (slot_attempt = 0; slot_attempt < max_holders; slot_attempt++) {
             try_slot = (start_slot + slot_attempt) % max_holders;
             
             /* Set slot in lock info */
@@ -263,6 +294,9 @@ int acquire_lock(const char *descriptor, int max_holders, double timeout) {
                 }
                 debug("Slot %d already taken, trying next slot", try_slot);
             }
+        }
+        } else {
+            debug("DEBUG: Skipping slot claiming - all slots occupied");
         }
         
         if (slot_claimed >= 0) {
