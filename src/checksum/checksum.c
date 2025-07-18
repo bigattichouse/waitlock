@@ -67,6 +67,9 @@ uint32_t calculate_crc32(const void *data, size_t len) {
 
 /* Calculate checksum for lock_info structure (excluding checksum field) */
 uint32_t calculate_lock_checksum(const struct lock_info *info) {
+    if (info == NULL) {
+        return 0;
+    }
     /* Calculate checksum of everything except the checksum field itself */
     /* The checksum field is at the end, so we calculate checksum of the struct minus the checksum field */
     size_t data_size = offsetof(struct lock_info, checksum);
@@ -75,6 +78,9 @@ uint32_t calculate_lock_checksum(const struct lock_info *info) {
 
 /* Validate lock file checksum */
 bool validate_lock_checksum(const struct lock_info *info) {
+    if (info == NULL) {
+        return FALSE;
+    }
     uint32_t expected = calculate_lock_checksum(info);
     return info->checksum == expected;
 }
