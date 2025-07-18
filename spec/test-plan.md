@@ -412,4 +412,4 @@ The priority should be on fixing the core functionality issues before expanding 
 *Test suite version: 1.1*
 *Overall pass rate: 86%*
 
-**Major Improvement**: Fixed no-contention hanging issue, significantly improving test pass rate from 25% to 86%
+**Major Improvement**: Resolved hanging issues, significantly improving test pass rate from 25% to 86%
