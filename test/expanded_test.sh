@@ -498,7 +498,7 @@ wait $MULTI1_PID $MULTI2_PID 2>/dev/null || true
 
 # Test 25: Command execution with lock
 test_start "Command execution with lock"
-result=$($WAITLOCK --lock-dir "$LOCK_DIR" --exec echo "test output" exectest 2>/dev/null)
+result=$($WAITLOCK --lock-dir "$LOCK_DIR" exectest --exec echo "test output" 2>/dev/null)
 if [ "$result" = "test output" ]; then
     test_pass
 else

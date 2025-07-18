@@ -209,7 +209,7 @@ fi
 
 # Test 6: Exec mode
 test_start "Exec mode"
-result=$($WAITLOCK --lock-dir "$LOCK_DIR" --exec exectest echo "Hello World" 2>/dev/null)
+result=$($WAITLOCK --lock-dir "$LOCK_DIR" exectest --exec echo "Hello World" 2>/dev/null)
 if [ "$result" = "Hello World" ]; then
     test_pass
 else

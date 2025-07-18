@@ -267,7 +267,7 @@ fi
 
 # Test 10: Command execution
 test_start "Command execution (--exec)"
-result=$($WAITLOCK --lock-dir "$LOCK_DIR" --exec echo "test output" exectest 2>/dev/null)
+result=$($WAITLOCK --lock-dir "$LOCK_DIR" exectest --exec echo "test output" 2>/dev/null)
 if [ "$result" = "test output" ]; then
     test_pass
 else

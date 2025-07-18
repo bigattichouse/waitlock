@@ -8,7 +8,7 @@ test_suite_start "Exec Functionality"
 
 # Test basic exec
 test_start "Basic exec"
-if $WAITLOCK --lock-dir "$LOCK_DIR" --exec echo "test output" test_exec_basic >/dev/null 2>&1; then
+if $WAITLOCK --lock-dir "$LOCK_DIR" test_exec_basic --exec echo "test output" >/dev/null 2>&1; then
     test_pass "Basic exec works"
 else
     test_fail "Basic exec should work"
@@ -24,7 +24,7 @@ fi
 
 # Test exec with multiple arguments
 test_start "Exec with multiple arguments"
-if $WAITLOCK --lock-dir "$LOCK_DIR" --exec echo "arg1" "arg2" "arg3" test_exec_multi >/dev/null 2>&1; then
+if $WAITLOCK --lock-dir "$LOCK_DIR" test_exec_multi --exec echo "arg1" "arg2" "arg3" >/dev/null 2>&1; then
     test_pass "Exec works with multiple arguments"
 else
     test_fail "Exec should work with multiple arguments"
@@ -32,7 +32,7 @@ fi
 
 # Test exec with shell command
 test_start "Exec with shell command"
-if $WAITLOCK --lock-dir "$LOCK_DIR" --exec sh -c "echo hello | grep hello" test_exec_shell >/dev/null 2>&1; then
+if $WAITLOCK --lock-dir "$LOCK_DIR" test_exec_shell --exec sh -c "echo hello | grep hello" >/dev/null 2>&1; then
     test_pass "Exec works with shell commands"
 else
     test_fail "Exec should work with shell commands"
@@ -69,7 +69,7 @@ EXEC_TIMEOUT_PID=$!
 sleep 1
 
 # Try to acquire with timeout
-if ! $WAITLOCK --lock-dir "$LOCK_DIR" --timeout 1 --exec echo "should timeout" test_exec_timeout_holder >/dev/null 2>&1; then
+if ! $WAITLOCK --lock-dir "$LOCK_DIR" --timeout 1 test_exec_timeout_holder --exec echo "should timeout" >/dev/null 2>&1; then
     test_pass "Exec respects timeout"
 else
     test_fail "Exec should respect timeout"
@@ -175,7 +175,7 @@ fi
 
 # Test exec with path-based command
 test_start "Exec with path-based command"
-if $WAITLOCK --lock-dir "$LOCK_DIR" --exec /bin/echo "path command" test_exec_path >/dev/null 2>&1; then
+if $WAITLOCK --lock-dir "$LOCK_DIR" test_exec_path --exec /bin/echo "path command" >/dev/null 2>&1; then
     test_pass "Exec works with path-based commands"
 else
     test_fail "Exec should work with path-based commands"
@@ -183,7 +183,7 @@ fi
 
 # Test exec with special characters in arguments
 test_start "Exec with special characters"
-if $WAITLOCK --lock-dir "$LOCK_DIR" --exec echo "arg with spaces" test_exec_special >/dev/null 2>&1; then
+if $WAITLOCK --lock-dir "$LOCK_DIR" test_exec_special --exec echo "arg with spaces" >/dev/null 2>&1; then
     test_pass "Exec handles special characters in arguments"
 else
     test_fail "Exec should handle special characters in arguments"
