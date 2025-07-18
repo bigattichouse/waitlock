@@ -88,6 +88,10 @@ int parse_args(int argc, char *argv[]) {
     env_timeout = getenv("WAITLOCK_TIMEOUT");
     if (env_timeout) {
         opts.timeout = atof(env_timeout);
+        if (opts.timeout < 0.0) {
+            error(E_USAGE, "WAITLOCK_TIMEOUT must be non-negative");
+            return E_USAGE;
+        }
     }
     
     env_dir = getenv("WAITLOCK_DIR");
@@ -140,6 +144,10 @@ int parse_args(int argc, char *argv[]) {
                 return E_USAGE;
             }
             opts.timeout = atof(argv[i]);
+            if (opts.timeout < 0.0) {
+                error(E_USAGE, "Timeout must be non-negative");
+                return E_USAGE;
+            }
         }
         else if (strcmp(argv[i], "--check") == 0) {
             opts.check_only = TRUE;

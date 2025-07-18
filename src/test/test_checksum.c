@@ -74,7 +74,7 @@ int test_crc32_empty_data(void) {
     const char *empty_data = "";
     uint32_t checksum = calculate_crc32(empty_data, 0);
     
-    TEST_ASSERT(checksum != 0, "Empty data should produce non-zero checksum");
+    TEST_ASSERT(checksum == 0, "Empty data should produce zero checksum (standard behavior)");
     
     printf("  → Empty data checksum: 0x%08x\n", checksum);
     

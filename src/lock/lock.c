@@ -273,9 +273,9 @@ int acquire_lock(const char *descriptor, int max_holders, double timeout) {
                 /* Set slot in lock info */
                 info.slot = try_slot;
                 
-                /* Create lock file with slot number */
-                safe_snprintf(lock_path, sizeof(lock_path), "%s/%s.slot%d.%s.%d.lock",
-                              lock_dir, descriptor, try_slot, hostname, (int)info.pid);
+                /* Create lock file with slot number - use slot-specific name for atomic claiming */
+                safe_snprintf(lock_path, sizeof(lock_path), "%s/%s.slot%d.lock",
+                              lock_dir, descriptor, try_slot);
                 safe_snprintf(temp_path, sizeof(temp_path), "%s/.tmp.%d.%d",
                               lock_dir, (int)info.pid, rand());
                 

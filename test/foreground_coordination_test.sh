@@ -39,15 +39,17 @@ create_worker_script() {
 #!/bin/bash
 echo "[$worker_id] Starting at \$(date '+%H:%M:%S')"
 
-if $WAITLOCK --lock-dir "$LOCK_DIR" --timeout $timeout foregroundtest; then
-    echo "[$worker_id] SUCCESS: Got the lock at \$(date '+%H:%M:%S')"
-    echo "[$worker_id] Doing critical work..."
+# Use --exec mode for proper foreground coordination
+if $WAITLOCK --lock-dir "$LOCK_DIR" --timeout $timeout foregroundtest --exec bash -c "
+    echo '[$worker_id] SUCCESS: Got the lock at \$(date +%H:%M:%S)'
+    echo '[$worker_id] Doing critical work...'
     
     # Simulate work
     sleep 2
     
-    echo "[$worker_id] Work complete at \$(date '+%H:%M:%S')"
-    echo "[$worker_id] Lock will be released automatically"
+    echo '[$worker_id] Work complete at \$(date +%H:%M:%S)'
+    echo '[$worker_id] Lock will be released automatically'
+"; then
     exit 0
 else
     echo "[$worker_id] FAILED: Could not get lock at \$(date '+%H:%M:%S')"
