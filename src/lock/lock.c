@@ -153,6 +153,26 @@ int acquire_lock(const char *descriptor, int max_holders, double timeout) {
     gettimeofday(&start_time, NULL);
     
     while (1) {
+        /* Check timeout at start of each iteration to prevent hanging */
+        if (timeout >= 0) {
+            gettimeofday(&now, NULL);
+            elapsed = (now.tv_sec - start_time.tv_sec) + 
+                     (now.tv_usec - start_time.tv_usec) / 1000000.0;
+            if (elapsed >= timeout) {
+                /* Log timeout to syslog if requested */
+                if (g_state.use_syslog) {
+#ifdef HAVE_SYSLOG_H
+                    openlog("waitlock", LOG_PID, g_state.syslog_facility);
+                    syslog(LOG_WARNING, "timeout waiting for lock '%s' after %.1f seconds", 
+                           descriptor, timeout);
+                    closelog();
+#endif
+                }
+                error(E_TIMEOUT, "Timeout waiting for lock '%s' after %.1f seconds", descriptor, timeout);
+                return E_TIMEOUT;
+            }
+        }
+        
         /* Clean up stale locks first and count active locks */
         debug("DEBUG: Opening lock directory...");
         int active_locks = 0;
@@ -242,59 +262,79 @@ int acquire_lock(const char *descriptor, int max_holders, double timeout) {
             int start_slot = (opts.preferred_slot >= 0 && opts.preferred_slot < max_holders) ? opts.preferred_slot : 0;
             int slot_attempt, try_slot;
             
+            debug("DEBUG: Attempting to claim slot - %d active locks, %d max holders", active_locks, max_holders);
+            
             /* Try each slot in sequence, starting with preferred slot */
             for (slot_attempt = 0; slot_attempt < max_holders; slot_attempt++) {
-            try_slot = (start_slot + slot_attempt) % max_holders;
-            
-            /* Set slot in lock info */
-            info.slot = try_slot;
-            
-            /* Create lock file with slot number */
-            safe_snprintf(lock_path, sizeof(lock_path), "%s/%s.slot%d.%s.%d.lock",
-                          lock_dir, descriptor, try_slot, hostname, (int)info.pid);
-            safe_snprintf(temp_path, sizeof(temp_path), "%s/.tmp.%d.%d",
-                          lock_dir, (int)info.pid, rand());
-            
-            info.acquired_at = time(NULL);
-            /* Calculate and set checksum before writing */
-            info.checksum = calculate_lock_checksum(&info);
-            
-            /* Try binary format first */
-            fd = open(temp_path, O_WRONLY | O_CREAT | O_EXCL, 0644);
-            if (fd >= 0) {
-                if (write(fd, &info, sizeof(info)) == sizeof(info)) {
-                    close(fd);
-                } else {
-                    /* Binary write failed, try text fallback */
-                    close(fd);
-                    unlink(temp_path);
-                    if (write_text_lock_file(temp_path, &info) != 0) {
-                        error(E_SYSTEM, "Cannot write lock info: %s", strerror(errno));
-                        return E_SYSTEM;
+                try_slot = (start_slot + slot_attempt) % max_holders;
+                
+                debug("DEBUG: Trying slot %d (attempt %d)", try_slot, slot_attempt);
+                
+                /* Set slot in lock info */
+                info.slot = try_slot;
+                
+                /* Create lock file with slot number */
+                safe_snprintf(lock_path, sizeof(lock_path), "%s/%s.slot%d.%s.%d.lock",
+                              lock_dir, descriptor, try_slot, hostname, (int)info.pid);
+                safe_snprintf(temp_path, sizeof(temp_path), "%s/.tmp.%d.%d",
+                              lock_dir, (int)info.pid, rand());
+                
+                info.acquired_at = time(NULL);
+                /* Calculate and set checksum before writing */
+                info.checksum = calculate_lock_checksum(&info);
+                
+                debug("DEBUG: Creating temp file: %s", temp_path);
+                
+                /* Try binary format first */
+                fd = open(temp_path, O_WRONLY | O_CREAT | O_EXCL, 0644);
+                if (fd >= 0) {
+                    debug("DEBUG: Temp file created successfully");
+                    if (write(fd, &info, sizeof(info)) == sizeof(info)) {
+                        close(fd);
+                        debug("DEBUG: Binary format written successfully");
+                    } else {
+                        /* Binary write failed, try text fallback */
+                        close(fd);
+                        unlink(temp_path);
+                        debug("DEBUG: Binary write failed, trying text fallback");
+                        if (write_text_lock_file(temp_path, &info) != 0) {
+                            error(E_SYSTEM, "Cannot write lock info: %s", strerror(errno));
+                            return E_SYSTEM;
+                        }
+                        debug("Used text fallback format for lock file");
                     }
-                    debug("Used text fallback format for lock file");
-                }
-            } else {
-                error(E_SYSTEM, "Cannot create temp file: %s", strerror(errno));
-                return E_SYSTEM;
-            }
-            
-            /* Atomic rename - this is where we claim the slot */
-            if (rename(temp_path, lock_path) == 0) {
-                /* Successfully claimed this slot */
-                slot_claimed = try_slot;
-                break;
-            } else {
-                /* Slot already taken or other error - clean up and try next slot */
-                unlink(temp_path);
-                if (errno != EEXIST) {
-                    /* Real error, not just slot collision */
-                    error(E_SYSTEM, "Cannot create lock file: %s", strerror(errno));
+                } else {
+                    debug("DEBUG: Failed to create temp file: %s", strerror(errno));
+                    error(E_SYSTEM, "Cannot create temp file: %s", strerror(errno));
                     return E_SYSTEM;
                 }
-                debug("Slot %d already taken, trying next slot", try_slot);
+                
+                debug("DEBUG: Attempting atomic rename: %s -> %s", temp_path, lock_path);
+                
+                /* Atomic rename - this is where we claim the slot */
+                if (rename(temp_path, lock_path) == 0) {
+                    /* Successfully claimed this slot */
+                    debug("DEBUG: Slot %d claimed successfully", try_slot);
+                    slot_claimed = try_slot;
+                    break;
+                } else {
+                    /* Slot already taken or other error - clean up and try next slot */
+                    debug("DEBUG: Rename failed: %s (errno=%d)", strerror(errno), errno);
+                    unlink(temp_path);
+                    if (errno != EEXIST) {
+                        /* Real error, not just slot collision */
+                        error(E_SYSTEM, "Cannot create lock file: %s", strerror(errno));
+                        return E_SYSTEM;
+                    }
+                    debug("Slot %d already taken, trying next slot", try_slot);
+                }
             }
-        }
+            
+            /* If we tried all slots and none were available, something is wrong */
+            if (slot_claimed < 0) {
+                debug("DEBUG: All slots appeared taken despite count showing availability");
+                debug("DEBUG: This suggests a race condition - will retry after backoff");
+            }
         } else {
             debug("DEBUG: Skipping slot claiming - all slots occupied");
         }
@@ -339,7 +379,7 @@ int acquire_lock(const char *descriptor, int max_holders, double timeout) {
         /* No slot could be claimed - all slots are currently in use */
         debug("All %d slots are currently in use", max_holders);
         
-        /* Check timeout */
+        /* Check timeout again after slot claiming attempts */
         if (timeout >= 0) {
             gettimeofday(&now, NULL);
             elapsed = (now.tv_sec - start_time.tv_sec) + 
