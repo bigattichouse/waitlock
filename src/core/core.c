@@ -24,6 +24,9 @@ int strcasecmp_compat(const char *s1, const char *s2) {
 
 /* Parse syslog facility name to facility constant */
 int parse_syslog_facility(const char *facility_name) {
+    if (facility_name == NULL) {
+        return -1;
+    }
 #ifdef HAVE_SYSLOG_H
 #ifdef HAVE_STRCASECMP
     #define STRCASECMP strcasecmp

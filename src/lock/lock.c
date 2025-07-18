@@ -450,6 +450,7 @@ int check_lock(const char *descriptor) {
     DIR *dir;
     struct dirent *entry;
     int active_locks = 0;
+    int max_holders = 1; /* Default to mutex behavior */
     
     lock_dir = find_lock_directory();
     if (!lock_dir) {
@@ -476,6 +477,8 @@ int check_lock(const char *descriptor) {
             if (read_lock_file_any_format(check_path, &info) == 0) {
                 if (info.magic == LOCK_MAGIC && validate_lock_checksum(&info) && process_exists(info.pid)) {
                     active_locks++;
+                    /* Use max_holders from any valid lock file */
+                    max_holders = info.max_holders;
                 } else if (info.magic == LOCK_MAGIC && !validate_lock_checksum(&info)) {
                     /* Corrupted lock file - clean it up */
                     debug("Removing corrupted lock file: %s", entry->d_name);
@@ -501,13 +504,14 @@ int check_lock(const char *descriptor) {
     if (g_state.use_syslog) {
 #ifdef HAVE_SYSLOG_H
         openlog("waitlock", LOG_PID, g_state.syslog_facility);
-        syslog(LOG_INFO, "check lock '%s': %s (%d active holders)", 
-               descriptor, (active_locks > 0) ? "busy" : "available", active_locks);
+        syslog(LOG_INFO, "check lock '%s': %s (%d/%d holders)", 
+               descriptor, (active_locks >= max_holders) ? "busy" : "available", 
+               active_locks, max_holders);
         closelog();
 #endif
     }
     
-    return (active_locks > 0) ? E_BUSY : E_SUCCESS;
+    return (active_locks >= max_holders) ? E_BUSY : E_SUCCESS;
 }
 
 /* List locks */
