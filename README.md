@@ -30,12 +30,15 @@ sudo apt-get install build-essential autoconf
 make
 sudo make install
 
-# Basic usage - acquire exclusive lock
-waitlock myapp &
+# Basic usage - acquire exclusive lock (RECOMMENDED)
+waitlock myapp || {
+    echo "Another instance is already running"
+    exit 1
+}
 # ... do exclusive work ...
-waitlock --done myapp
+# Lock automatically released when script exits
 
-# Execute command with lock
+# Execute command with lock (BEST PRACTICE)
 waitlock database_backup --exec "/usr/local/bin/backup.sh --daily"
 
 # List active locks
@@ -129,11 +132,13 @@ echo <descriptor> | waitlock [options]
 ### Simple Examples
 
 ```bash
-# Acquire mutex lock
-waitlock myapp &
-JOB_PID=$!
+# Acquire mutex lock (RECOMMENDED APPROACH)
+waitlock myapp || {
+    echo "Another instance is already running"
+    exit 1
+}
 # ... do exclusive work ...
-waitlock --done myapp
+# Lock automatically released when script exits
 
 # Check if lock is available
 if waitlock --check myapp; then
@@ -142,12 +147,43 @@ else
     echo "Lock is held by another process"
 fi
 
-# Execute command while holding lock
+# Execute command while holding lock (BEST PRACTICE)
 waitlock backup_job --exec rsync -av /source /destination
 
 # Use with timeout
 waitlock --timeout 30 critical_resource || echo "Timeout!"
 ```
+
+### ⚠️ Important: Background Usage Warning
+
+**DO NOT use background execution (`&`) for script coordination!**
+
+```bash
+# ❌ WRONG - Don't do this for script coordination:
+waitlock myapp &
+# This returns immediately, whether lock was acquired or not
+# Both scripts may think they got the lock
+# Requires complex PID management and cleanup
+
+# ✅ CORRECT - Use foreground execution:
+waitlock myapp || {
+    echo "Another instance is already running"
+    exit 1
+}
+# This blocks until lock is acquired or fails
+# Clear success/failure indication
+# Automatic cleanup when script exits
+```
+
+**Why foreground is better:**
+- ✅ **Reliable** - Clear success/failure indication
+- ✅ **Simple** - No PID management or manual cleanup needed
+- ✅ **Safe** - No race conditions
+- ✅ **Automatic** - Lock released when process exits
+
+**When to use background (`&`):**
+- ⚠️ **Only for testing** - When you need to verify lock behavior
+- ⚠️ **Never for production** - Use `--exec` or foreground instead
 
 ## Examples
 
@@ -284,9 +320,11 @@ perform_critical_operation
 
 ```bash
 #!/bin/bash
-# Clean lock release using --done flag
+# Clean lock release using --done flag (for testing/debugging)
 
-# Start long-running process with lock
+# ⚠️ Note: This is mainly for testing - use --exec for production
+
+# Start long-running process with lock (background for demonstration)
 waitlock long_running_task &
 LOCK_PID=$!
 
@@ -299,25 +337,34 @@ waitlock --done long_running_task
 # Wait for the process to exit gracefully
 wait $LOCK_PID
 echo "Process exited with code: $?"
+
+# ✅ BETTER APPROACH: Use --exec for production
+# waitlock long_running_task --exec "./long_running_script.sh"
 ```
 
 ### 10. Resource Pool Management
 
 ```bash
 #!/bin/bash
-# Manage GPU resources
+# Manage GPU resources (RECOMMENDED APPROACH)
 
-# Export slot number for GPU selection
-waitlock --allowMultiple 4 gpu_pool &
-LOCK_PID=$!
+# Acquire semaphore slot and run computation
+waitlock --allowMultiple 4 gpu_pool || {
+    echo "All GPU slots are busy"
+    exit 1
+}
 
-# Wait for lock and get slot number
-wait $LOCK_PID
-if [ $? -eq 0 ]; then
-    # Use WAITLOCK_SLOT environment variable
-    export CUDA_VISIBLE_DEVICES=$WAITLOCK_SLOT
-    ./gpu_computation.py
-fi
+# Use WAITLOCK_SLOT environment variable for GPU selection
+export CUDA_VISIBLE_DEVICES=$WAITLOCK_SLOT
+./gpu_computation.py
+
+# Lock automatically released when script exits
+
+# ✅ ALTERNATIVE: Use --exec for cleaner approach
+# waitlock --allowMultiple 4 gpu_pool --exec bash -c '
+#     export CUDA_VISIBLE_DEVICES=$WAITLOCK_SLOT
+#     ./gpu_computation.py
+# '
 ```
 
 ### 11. Distributed Locking (NFS)

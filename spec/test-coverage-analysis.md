@@ -276,6 +276,47 @@ test_<feature>_<scenario>()
 test_start "<Feature>: <Scenario> - <Expected Result>"
 ```
 
+## Best Practices for Script Coordination
+
+### ✅ RECOMMENDED: Foreground Execution
+
+```bash
+#!/bin/bash
+# Acquire lock and proceed only if successful
+waitlock myapp || {
+    echo "Another instance is already running"
+    exit 1
+}
+
+# Do critical work
+perform_critical_operations
+
+# Lock automatically released when script exits
+```
+
+### ✅ RECOMMENDED: Command Execution Mode
+
+```bash
+#!/bin/bash
+# Execute command while holding lock (cleanest approach)
+waitlock myapp --exec "./critical_script.sh"
+```
+
+### ⚠️ AVOID: Background Execution for Production
+
+```bash
+#!/bin/bash
+# ❌ DON'T DO THIS in production scripts:
+waitlock myapp &
+LOCK_PID=$!
+# This creates race conditions and requires complex cleanup
+```
+
+**Background execution should only be used for:**
+- ⚠️ **Testing purposes** - When verifying lock behavior
+- ⚠️ **Test frameworks** - When multiple processes need coordination
+- ⚠️ **Never in production** - Use foreground or --exec instead
+
 ## Implementation Checklist
 
 ### Phase 1 Tasks (Critical)
