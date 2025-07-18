@@ -101,7 +101,7 @@ int acquire_lock(const char *descriptor, int max_holders, double timeout) {
     DIR *dir;
     struct dirent *entry;
     int fd;
-    time_t start_time, now;
+    struct timeval start_time, now;
     double elapsed;
     int wait_ms = 10;
     bool contention_logged = FALSE;
@@ -143,7 +143,7 @@ int acquire_lock(const char *descriptor, int max_holders, double timeout) {
     }
     
     /* Try to acquire lock */
-    start_time = time(NULL);
+    gettimeofday(&start_time, NULL);
     
     while (1) {
         /* Clean up stale locks first */
@@ -307,8 +307,9 @@ int acquire_lock(const char *descriptor, int max_holders, double timeout) {
         
         /* Check timeout */
         if (timeout >= 0) {
-            now = time(NULL);
-            elapsed = difftime(now, start_time);
+            gettimeofday(&now, NULL);
+            elapsed = (now.tv_sec - start_time.tv_sec) + 
+                     (now.tv_usec - start_time.tv_usec) / 1000000.0;
             if (elapsed >= timeout) {
                 /* Log timeout to syslog if requested */
                 if (g_state.use_syslog) {
@@ -379,7 +380,29 @@ int acquire_lock(const char *descriptor, int max_holders, double timeout) {
         }
         
         /* Wait with exponential backoff */
-        usleep(wait_ms * 1000);
+        int sleep_ms = wait_ms;
+        
+        /* For timeouts, don't sleep longer than remaining time */
+        if (timeout >= 0) {
+            struct timeval now_check;
+            gettimeofday(&now_check, NULL);
+            double elapsed_check = (now_check.tv_sec - start_time.tv_sec) + 
+                                  (now_check.tv_usec - start_time.tv_usec) / 1000000.0;
+            double remaining = timeout - elapsed_check;
+            if (remaining <= 0) {
+                /* Already past timeout, return timeout error immediately */
+                error(E_TIMEOUT, "Timeout waiting for lock '%s' after %.1f seconds", descriptor, timeout);
+                return E_TIMEOUT;
+            }
+            /* Limit sleep to remaining timeout (with small margin) */
+            int max_sleep_ms = (int)(remaining * 1000 * 0.9); /* 90% of remaining */
+            if (max_sleep_ms < sleep_ms) {
+                sleep_ms = max_sleep_ms;
+            }
+            if (sleep_ms < 1) sleep_ms = 1; /* Minimum 1ms */
+        }
+        
+        usleep(sleep_ms * 1000);
         wait_ms = wait_ms * 2;
         if (wait_ms > 1000) wait_ms = 1000;
         

@@ -114,7 +114,7 @@ fi
 # Test 7: Exec functionality
 test_start "Exec command basic functionality"
 start_time=$(date +%s)
-if timeout 5 $WAITLOCK --lock-dir "$LOCK_DIR" --exec echo "test" diag_exec >/dev/null 2>&1; then
+if timeout 5 $WAITLOCK --lock-dir "$LOCK_DIR" diag_exec --exec echo "test" >/dev/null 2>&1; then
     end_time=$(date +%s)
     duration=$((end_time - start_time))
     if [ $duration -le 3 ]; then
