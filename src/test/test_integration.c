@@ -466,10 +466,18 @@ int test_signal_handling_integration(void) {
     
     const char *test_descriptor = "test_signal_integration";
     
+    /* Create pipe for parent-child coordination */
+    int sync_pipe[2];
+    if (pipe(sync_pipe) != 0) {
+        return 1;
+    }
+    
     /* Test 1: Create child process that holds lock and installs signal handlers */
     pid_t child_pid = fork();
     if (child_pid == 0) {
         /* Child process */
+        close(sync_pipe[0]); /* Close read end */
+        
         install_signal_handlers();
         
         opts.descriptor = test_descriptor;
@@ -478,6 +486,11 @@ int test_signal_handling_integration(void) {
         
         int acquire_result = acquire_lock(opts.descriptor, opts.max_holders, opts.timeout);
         if (acquire_result == 0) {
+            /* Signal parent that lock is acquired */
+            char signal = 1;
+            write(sync_pipe[1], &signal, 1);
+            close(sync_pipe[1]);
+            
             /* Wait for signal */
             while (1) {
                 sleep(1);
@@ -486,7 +499,12 @@ int test_signal_handling_integration(void) {
         exit(1);
     } else if (child_pid > 0) {
         /* Parent process */
-        sleep(1); /* Give child time to acquire lock */
+        close(sync_pipe[1]); /* Close write end */
+        
+        /* Wait for child to acquire lock */
+        char parent_signal;
+        read(sync_pipe[0], &parent_signal, 1);
+        close(sync_pipe[0]);
         
         /* Test 2: Verify lock is held */
         int check_result = check_lock(test_descriptor);
@@ -524,23 +542,41 @@ int test_stale_lock_cleanup_integration(void) {
     
     const char *test_descriptor = "test_stale_cleanup";
     
+    /* Create pipe for parent-child coordination */
+    int sync_pipe[2];
+    if (pipe(sync_pipe) != 0) {
+        return 1;
+    }
+    
     /* Test 1: Create child process that dies without cleanup */
     pid_t child_pid = fork();
     if (child_pid == 0) {
         /* Child process */
+        close(sync_pipe[0]); /* Close read end */
+        
         opts.descriptor = test_descriptor;
         opts.max_holders = 1;
         opts.timeout = 0.0;
         
         int acquire_result = acquire_lock(opts.descriptor, opts.max_holders, opts.timeout);
         if (acquire_result == 0) {
+            /* Signal parent that lock is acquired */
+            char signal = 1;
+            write(sync_pipe[1], &signal, 1);
+            close(sync_pipe[1]);
+            
             /* Exit without calling release_lock() */
             _exit(0);
         }
         _exit(1);
     } else if (child_pid > 0) {
         /* Parent process */
-        sleep(1); /* Give child time to acquire lock */
+        close(sync_pipe[1]); /* Close write end */
+        
+        /* Wait for child to acquire lock */
+        char parent_signal;
+        read(sync_pipe[0], &parent_signal, 1);
+        close(sync_pipe[0]);
         
         /* Test 2: Wait for child to die */
         int status;
@@ -551,10 +587,11 @@ int test_stale_lock_cleanup_integration(void) {
         }
         
         /* Test 3: Try to acquire same lock (should work if cleanup works) */
-        sleep(1);
+        /* Give the system time to detect the stale process */
+        sleep(2);
         opts.descriptor = test_descriptor;
         opts.max_holders = 1;
-        opts.timeout = 2.0;
+        opts.timeout = 5.0;
         
         int acquire_result = acquire_lock(opts.descriptor, opts.max_holders, opts.timeout);
         TEST_ASSERT(acquire_result == 0, "Should be able to acquire lock after stale cleanup");

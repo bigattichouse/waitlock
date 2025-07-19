@@ -12,6 +12,22 @@
 #include <errno.h>
 #include <time.h>
 
+/* Clean up any leftover test artifacts from previous runs */
+void test_cleanup_global(void) {
+    char cmd[512];
+    
+    /* Kill any lingering waitlock test processes */
+    snprintf(cmd, sizeof(cmd), "pkill -f 'waitlock.*test_' 2>/dev/null || true");
+    system(cmd);
+    
+    /* Remove any test lock files */
+    snprintf(cmd, sizeof(cmd), "rm -f /var/lock/waitlock/test_*.lock 2>/dev/null || true");
+    system(cmd);
+    
+    /* Small delay to ensure cleanup completes */
+    usleep(200000); /* 200ms */
+}
+
 /* Initialize test context with unique directory */
 int test_setup_context(test_context_t *ctx, const char *test_name) {
     /* Save original lock directory */
@@ -71,6 +87,10 @@ int test_teardown_context(test_context_t *ctx) {
     
     /* Small delay to let processes cleanup */
     usleep(100000); /* 100ms */
+    
+    /* Clean up any remaining test lock files */
+    snprintf(cmd, sizeof(cmd), "rm -f /var/lock/waitlock/test_*.lock 2>/dev/null || true");
+    system(cmd);
     
     /* Remove test directory recursively */
     snprintf(cmd, sizeof(cmd), "rm -rf %s", ctx->test_dir);

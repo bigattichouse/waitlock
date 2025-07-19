@@ -5,6 +5,7 @@
 
 #include "../waitlock.h"
 #include "test.h"
+#include "test_framework.h"
 
 /* External test suite functions */
 extern int run_checksum_tests(void);
@@ -44,6 +45,9 @@ int run_unit_tests(void) {
     printf("============================================================\n");
     printf("                 WAITLOCK UNIT TEST SUITE\n");
     printf("============================================================\n");
+    
+    /* Clean up any leftover test artifacts from previous runs */
+    test_cleanup_global();
     
     /* Run all test suites */
     run_test_suite("Checksum", run_checksum_tests);
