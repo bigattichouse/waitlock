@@ -5,7 +5,7 @@
 #include <string.h>
 
 /* Include waitlock headers */
-#include "src/waitlock.h"
+#include "../../src/waitlock.h"
 
 /* We need to test if global state corruption is the issue */
 int main() {
