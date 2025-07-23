@@ -10,6 +10,7 @@
 /* External test suite functions */
 extern int run_checksum_tests(void);
 extern int run_core_tests(void);
+extern int run_process_coordinator_tests(void);
 extern int run_lock_tests(void);
 extern int run_process_tests(void);
 extern int run_signal_tests(void);
@@ -54,6 +55,9 @@ int run_unit_tests(void) {
     test_cleanup_between_suites();
     
     run_test_suite("Core", run_core_tests);
+    test_cleanup_between_suites();
+    
+    run_test_suite("ProcessCoordinator", run_process_coordinator_tests);
     test_cleanup_between_suites();
     
     run_test_suite("Process", run_process_tests);
