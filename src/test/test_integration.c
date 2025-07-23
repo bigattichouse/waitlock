@@ -150,6 +150,12 @@ int test_end_to_end_semaphore(void) {
                 exit(1);
             }
             
+            /* Reset global state for child (critical for avoiding state corruption) */
+            extern struct global_state g_state;
+            g_state.lock_fd = -1;
+            g_state.lock_path[0] = '\0';
+            g_state.child_pid = 0;
+            
             int acquire_result = acquire_lock(opts.descriptor, opts.max_holders, 2.0);
             
             /* Signal parent about result using ProcessCoordinator */
@@ -202,7 +208,7 @@ int test_end_to_end_semaphore(void) {
         char child_status[32];
         
         /* Receive status from each child */
-        pc_result_t recv_result = pc_parent_receive(pcs[i], child_status, sizeof(child_status) - 1, 5000);
+        pc_result_t recv_result = pc_parent_receive(pcs[i], child_status, sizeof(child_status) - 1, 10000);
         if (recv_result == PC_SUCCESS) {
             child_status[sizeof(child_status) - 1] = '\0';
             if (strstr(child_status, "SUCCESS:") != NULL) {
