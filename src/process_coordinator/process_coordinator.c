@@ -1,4 +1,10 @@
+#define _XOPEN_SOURCE 500 // Required for usleep on some systems
 #include "process_coordinator.h"
+#include "../debug_utils.h"
+#include <unistd.h> // For usleep
+#include <signal.h> // For kill
+#include <errno.h> // For errno
+#include <sys/types.h> // For pid_t
 
 /* Simple ProcessCoordinator implementation based on debug_semaphore_exec.c pattern */
 /* No complex state machine, just reliable pipes + select() */
@@ -134,6 +140,7 @@ ssize_t pc_receive(ProcessCoordinator *pc, void *data, size_t len, int timeout_m
     }
     
     ssize_t bytes_read = read(read_fd, data, len);
+    debug("pc_receive: read_fd=%d, len=%zu, bytes_read=%zd, errno=%d\n", read_fd, len, bytes_read, errno);
     if (bytes_read <= 0) {
         pc_set_error(pc, bytes_read == 0 ? "Pipe closed unexpectedly" : "Read failed");
         return -1;
@@ -217,12 +224,11 @@ pc_result_t pc_parent_send(ProcessCoordinator *pc, const void *data, size_t len)
 
 pc_result_t pc_parent_receive(ProcessCoordinator *pc, void *data, size_t len, int timeout_ms) {
     if (!pc || pc->role != PC_ROLE_PARENT) return -1;
-    ssize_t result = pc_receive(pc, data, len - 1, timeout_ms); /* Leave room for null terminator */
-    if (result > 0) {
-        ((char*)data)[result] = '\0'; /* Null terminate for legacy compatibility */
-        return result; /* Return actual bytes read for legacy compatibility */
+    ssize_t result = pc_receive(pc, data, len, timeout_ms);
+    if (result > 0 && result < (ssize_t)len) {
+        ((char*)data)[result] = '\0'; /* Null terminate if space allows */
     }
-    return -1;
+    return result; /* Return actual bytes read */
 }
 
 pc_result_t pc_child_send(ProcessCoordinator *pc, const void *data, size_t len) {
@@ -232,12 +238,11 @@ pc_result_t pc_child_send(ProcessCoordinator *pc, const void *data, size_t len) 
 
 pc_result_t pc_child_receive(ProcessCoordinator *pc, void *data, size_t len, int timeout_ms) {
     if (!pc || pc->role != PC_ROLE_CHILD) return -1;
-    ssize_t result = pc_receive(pc, data, len - 1, timeout_ms); /* Leave room for null terminator */
-    if (result > 0) {
-        ((char*)data)[result] = '\0'; /* Null terminate for legacy compatibility */
-        return result; /* Return actual bytes read for legacy compatibility */
+    ssize_t result = pc_receive(pc, data, len, timeout_ms);
+    if (result > 0 && result < (ssize_t)len) {
+        ((char*)data)[result] = '\0'; /* Null terminate if space allows */
     }
-    return -1;
+    return result; /* Return actual bytes read */
 }
 
 pc_result_t pc_parent_wait_for_child_ready(ProcessCoordinator *pc, int timeout_ms) {

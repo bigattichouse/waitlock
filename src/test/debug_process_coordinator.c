@@ -1,13 +1,16 @@
+#define _XOPEN_SOURCE 500 // Required for usleep on some systems
+#define _XOPEN_SOURCE 500 // Required for usleep and kill on some systems
 #include "test.h"
 #include "../process_coordinator/process_coordinator.h"
-#include <unistd.h>
-#include <sys/wait.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
 #include <stdbool.h>
 #include <stdarg.h>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <sys/types.h>
+#include <signal.h>
 #include "../debug_utils.h"
 
 // Global variables are declared in waitlock.h and defined in waitlock.c
@@ -82,8 +85,7 @@ int test_pc_basic_communication(void) {
             exit(1);
         }
         // Give parent time to read the final signal before exiting
-        usleep(100000); // 100ms delay
-        pc_destroy(pc); // Destroy PC in child before exiting
+        usleep(500000); // 500ms delay
         exit(0);
     } else if (child_pid > 0) { // Parent process
         pc_result_t parent_setup_result = pc_after_fork_parent(pc, child_pid);
