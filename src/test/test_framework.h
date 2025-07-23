@@ -19,6 +19,7 @@ typedef struct {
 
 /* Clean up any leftover test artifacts from previous runs */
 void test_cleanup_global(void);
+void test_cleanup_between_suites(void);
 
 /* Initialize test context with unique directory */
 int test_setup_context(test_context_t *ctx, const char *test_name);

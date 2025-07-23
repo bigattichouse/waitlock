@@ -10,6 +10,7 @@
 #include "../process/process.h"
 #include "../signal/signal.h"
 #include "../checksum/checksum.h"
+#include "../pipe_coordinator/pipe_coordinator.h"
 
 /* Test framework */
 static int test_count = 0;
@@ -467,8 +468,8 @@ int test_signal_handling_integration(void) {
     const char *test_descriptor = "test_signal_integration";
     
     /* Create pipe for parent-child coordination */
-    int sync_pipe[2];
-    if (pipe(sync_pipe) != 0) {
+    PipeCoordinator *pc = pipe_coordinator_create();
+    if (pc == NULL) {
         return 1;
     }
     
@@ -476,55 +477,70 @@ int test_signal_handling_integration(void) {
     pid_t child_pid = fork();
     if (child_pid == 0) {
         /* Child process */
-        close(sync_pipe[0]); /* Close read end */
+        pipe_coordinator_close_read_end(pc); /* Close read end */
         
         install_signal_handlers();
         
         opts.descriptor = test_descriptor;
         opts.max_holders = 1;
-        opts.timeout = 0.0;
+        opts.timeout = 1.0; // Use a small timeout to ensure acquisition or failure
         
         int acquire_result = acquire_lock(opts.descriptor, opts.max_holders, opts.timeout);
         if (acquire_result == 0) {
             /* Signal parent that lock is acquired */
-            char signal = 1;
-            write(sync_pipe[1], &signal, 1);
-            close(sync_pipe[1]);
+            char signal_char = 'S';
+            pipe_coordinator_write(pc, &signal_char, 1);
+            pipe_coordinator_close_write_end(pc);
             
             /* Wait for signal */
             while (1) {
                 sleep(1);
             }
+        } else {
+            /* Signal parent that lock acquisition failed */
+            char signal_char = 'F';
+            pipe_coordinator_write(pc, &signal_char, 1);
+            pipe_coordinator_close_write_end(pc);
         }
-        exit(1);
+        pipe_coordinator_destroy(pc);
+        exit(acquire_result == 0 ? 0 : 1);
     } else if (child_pid > 0) {
         /* Parent process */
-        close(sync_pipe[1]); /* Close write end */
+        pipe_coordinator_set_child_pid(pc, child_pid);
+        pipe_coordinator_close_write_end(pc); /* Close write end */
         
         /* Wait for child to acquire lock */
-        char parent_signal;
-        read(sync_pipe[0], &parent_signal, 1);
-        close(sync_pipe[0]);
+        char child_signal;
+        ssize_t bytes_read = pipe_coordinator_read(pc, &child_signal, 1);
+        pipe_coordinator_close_read_end(pc);
         
-        /* Test 2: Verify lock is held */
-        int check_result = check_lock(test_descriptor);
-        TEST_ASSERT(check_result != 0, "Lock should be held by child");
-        
-        /* Test 3: Send SIGTERM to child */
-        kill(child_pid, SIGTERM);
-        
-        /* Test 4: Wait for child to exit */
-        int status;
-        waitpid(child_pid, &status, 0);
-        
-        if (WIFSIGNALED(status)) {
-            TEST_ASSERT(WTERMSIG(status) == SIGTERM, "Child should be terminated by SIGTERM");
+        if (bytes_read == 1 && child_signal == 'S') {
+            /* Test 2: Verify lock is held */
+            int check_result = check_lock(test_descriptor);
+            TEST_ASSERT(check_result != 0, "Lock should be held by child");
+            
+            /* Test 3: Send SIGTERM to child */
+            kill(child_pid, SIGTERM);
+            
+            /* Test 4: Wait for child to exit */
+            int status;
+            pipe_coordinator_wait_for_child(pc, &status);
+            
+            if (WIFSIGNALED(status)) {
+                TEST_ASSERT(WTERMSIG(status) == SIGTERM, "Child should be terminated by SIGTERM");
+            }
+            
+            /* Test 5: Verify lock is cleaned up */
+            sleep(1);
+            int check_result2 = check_lock(test_descriptor);
+            TEST_ASSERT(check_result2 == 0, "Lock should be cleaned up after signal");
+        } else {
+            TEST_ASSERT(0, "Child failed to acquire lock or communication failed");
+            kill(child_pid, SIGTERM);
+            int status;
+            pipe_coordinator_wait_for_child(pc, &status);
         }
-        
-        /* Test 5: Verify lock is cleaned up */
-        sleep(1);
-        int check_result2 = check_lock(test_descriptor);
-        TEST_ASSERT(check_result2 == 0, "Lock should be cleaned up after signal");
+        pipe_coordinator_destroy(pc);
     }
     
     /* Restore options */
@@ -562,7 +578,8 @@ int test_stale_lock_cleanup_integration(void) {
         if (acquire_result == 0) {
             /* Signal parent that lock is acquired */
             char signal = 1;
-            write(sync_pipe[1], &signal, 1);
+            ssize_t bytes_written = write(sync_pipe[1], &signal, 1);
+            (void)bytes_written; /* Suppress unused variable warning */
             close(sync_pipe[1]);
             
             /* Exit without calling release_lock() */
@@ -575,7 +592,8 @@ int test_stale_lock_cleanup_integration(void) {
         
         /* Wait for child to acquire lock */
         char parent_signal;
-        read(sync_pipe[0], &parent_signal, 1);
+        ssize_t bytes_read = read(sync_pipe[0], &parent_signal, 1);
+        (void)bytes_read; /* Suppress unused variable warning */
         close(sync_pipe[0]);
         
         /* Test 2: Wait for child to die */

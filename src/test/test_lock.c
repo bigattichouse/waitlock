@@ -7,6 +7,7 @@
 #include "../lock/lock.h"
 #include "../core/core.h"
 #include "../process/process.h"
+#include "../pipe_coordinator/pipe_coordinator.h"
 #include <time.h>
 
 /* Test framework */
@@ -107,11 +108,12 @@ int test_acquire_lock(void) {
     /* Clean up any existing lock files from previous tests */
     char cleanup_cmd[PATH_MAX + 50];
     snprintf(cleanup_cmd, sizeof(cleanup_cmd), "rm -f %s/test_*.lock 2>/dev/null || true", lock_dir);
-    system(cleanup_cmd);
+    int sys_result = system(cleanup_cmd);
+    (void)sys_result; /* Suppress unused variable warning */
     
     /* Test basic mutex acquisition */
     const char *test_descriptor = "test_acquire_lock";
-    int result = acquire_lock(test_descriptor, 1, 0.0);
+    int result = acquire_lock(test_descriptor, 1, 2.0);
     TEST_ASSERT(result == 0, "Should be able to acquire mutex lock");
     
     /* Test that same lock cannot be acquired again */
@@ -122,57 +124,66 @@ int test_acquire_lock(void) {
     release_lock();
     
     /* Test semaphore acquisition */
-    int result3 = acquire_lock("test_semaphore", 3, 0.0);
+    int result3 = acquire_lock("test_semaphore", 3, 2.0);
     TEST_ASSERT(result3 == 0, "Should be able to acquire semaphore slot");
     
     /* Test second semaphore slot with proper coordination */
-    int semaphore_pipe[2];
-    if (pipe(semaphore_pipe) == 0) {
-        pid_t child_pid = fork();
-        if (child_pid == 0) {
-            /* Child process */
-            close(semaphore_pipe[0]); /* Close read end */
-            
-            int child_result = acquire_lock("test_semaphore", 3, 1.0);
-            
-            /* Signal parent about result */
-            char signal = (child_result == 0) ? 'S' : 'F';
-            write(semaphore_pipe[1], &signal, 1);
-            
-            if (child_result == 0) {
-                /* Wait for parent signal to release */
-                char parent_signal;
-                read(semaphore_pipe[1], &parent_signal, 1);
-                release_lock();
-            }
-            
-            close(semaphore_pipe[1]);
-            exit(child_result == 0 ? 0 : 1);
-        } else if (child_pid > 0) {
-            /* Parent process */
-            close(semaphore_pipe[1]); /* Close write end initially */
-            
-            /* Wait for child result */
-            char child_signal;
-            if (read(semaphore_pipe[0], &child_signal, 1) == 1 && child_signal == 'S') {
-                TEST_ASSERT(1, "Should be able to acquire second semaphore slot");
-                
-                /* Signal child to release */
-                close(semaphore_pipe[0]);
-                
-                int status;
-                waitpid(child_pid, &status, 0);
-                TEST_ASSERT(WEXITSTATUS(status) == 0, "Child should exit successfully");
-            } else {
-                TEST_ASSERT(0, "Child failed to acquire semaphore slot");
-                close(semaphore_pipe[0]);
-                kill(child_pid, SIGTERM);
-                int status;
-                waitpid(child_pid, &status, 0);
-            }
+    PipeCoordinator *pc = pipe_coordinator_create();
+    if (pc == NULL) {
+        TEST_ASSERT(0, "Failed to create PipeCoordinator for semaphore test");
+        release_lock();
+        return 1;
+    }
+
+    pid_t child_pid = fork();
+    if (child_pid == 0) {
+        /* Child process */
+        pipe_coordinator_close_read_end(pc); /* Close read end */
+        pipe_coordinator_child_close_write(pc); /* Child closes its write end */
+        
+        int child_result = acquire_lock("test_semaphore", 3, 1.0);
+        
+        /* Signal parent about result */
+        char signal = (child_result == 0) ? 'S' : 'F';
+        pipe_coordinator_write(pc, &signal, 1);
+        
+        if (child_result == 0) {
+            /* Wait for parent signal to release */
+            char parent_signal;
+            pipe_coordinator_read(pc, &parent_signal, 1);
+            release_lock();
         }
+        
+        pipe_coordinator_destroy(pc); // Clean up child's coordinator
+        exit(child_result == 0 ? 0 : 1);
+    } else if (child_pid > 0) {
+        /* Parent process */
+        pipe_coordinator_set_child_pid(pc, child_pid); // Store child PID
+        pipe_coordinator_close_write_end(pc); /* Close write end initially */
+        pipe_coordinator_parent_close_read(pc); /* Parent closes its read end */
+        
+        /* Wait for child result */
+        char child_signal;
+        if (pipe_coordinator_read(pc, &child_signal, 1) == 1 && child_signal == 'S') {
+            TEST_ASSERT(1, "Should be able to acquire second semaphore slot");
+            
+            /* Signal child to release */
+            pipe_coordinator_close_read_end(pc); // Closing read end signals child
+            
+            int status;
+            pipe_coordinator_wait_for_child(pc, &status);
+            TEST_ASSERT(WEXITSTATUS(status) == 0, "Child should exit successfully");
+        } else {
+            TEST_ASSERT(0, "Child failed to acquire semaphore slot");
+            pipe_coordinator_close_read_end(pc);
+            kill(child_pid, SIGTERM);
+            int status;
+            pipe_coordinator_wait_for_child(pc, &status);
+        }
+        pipe_coordinator_destroy(pc); // Clean up parent's coordinator
     } else {
-        TEST_ASSERT(0, "Failed to create coordination pipe for semaphore test");
+        TEST_ASSERT(0, "Failed to fork child process for semaphore test");
+        pipe_coordinator_destroy(pc); // Clean up if fork fails
     }
     
     release_lock();
@@ -189,13 +200,14 @@ int test_release_lock(void) {
     if (lock_dir) {
         char cleanup_cmd[PATH_MAX + 50];
         snprintf(cleanup_cmd, sizeof(cleanup_cmd), "rm -f %s/test_*.lock 2>/dev/null || true", lock_dir);
-        system(cleanup_cmd);
+        int sys_result = system(cleanup_cmd);
+    (void)sys_result; /* Suppress unused variable warning */
     }
     
     const char *test_descriptor = "test_release_lock";
     
     /* Acquire lock */
-    int acquire_result = acquire_lock(test_descriptor, 1, 0.0);
+    int acquire_result = acquire_lock(test_descriptor, 1, 2.0);
     TEST_ASSERT(acquire_result == 0, "Should be able to acquire lock");
     
     /* Verify lock is held */
@@ -227,7 +239,7 @@ int test_check_lock(void) {
     TEST_ASSERT(result1 == 0, "Non-existent lock should be available");
     
     /* Acquire lock */
-    int acquire_result = acquire_lock(test_descriptor, 1, 0.0);
+    int acquire_result = acquire_lock(test_descriptor, 1, 2.0);
     TEST_ASSERT(acquire_result == 0, "Should be able to acquire lock");
     
     /* Test checking held lock */
@@ -250,7 +262,7 @@ int test_list_locks(void) {
     
     /* Create a test lock */
     const char *test_descriptor = "test_list_lock";
-    int acquire_result = acquire_lock(test_descriptor, 1, 0.0);
+    int acquire_result = acquire_lock(test_descriptor, 1, 2.0);
     TEST_ASSERT(acquire_result == 0, "Should be able to acquire test lock");
     
     /* Test human format listing */
@@ -292,9 +304,9 @@ int test_done_lock(void) {
     TEST_ASSERT(result1 != 0, "Done on non-existent lock should fail");
     
     /* Create pipe for parent-child coordination */
-    int sync_pipe[2];
-    if (pipe(sync_pipe) != 0) {
-        printf("  ✗ FAIL: Cannot create coordination pipe\n");
+    PipeCoordinator *pc = pipe_coordinator_create();
+    if (pc == NULL) {
+        printf("  ✗ FAIL: Cannot create PipeCoordinator\n");
         fail_count++;
         return 1;
     }
@@ -303,29 +315,32 @@ int test_done_lock(void) {
     pid_t child_pid = fork();
     if (child_pid == 0) {
         /* Child process - acquire lock and signal parent */
-        close(sync_pipe[0]); /* Close read end */
+        pipe_coordinator_close_read_end(pc); /* Close read end */
+        pipe_coordinator_child_close_write(pc); /* Child closes its write end */
         
-        int acquire_result = acquire_lock(test_descriptor, 1, 0.0);
+        int acquire_result = acquire_lock(test_descriptor, 1, 2.0);
         
         /* Signal parent about acquisition result */
         char signal = (acquire_result == 0) ? 'S' : 'F'; /* Success/Fail */
-        write(sync_pipe[1], &signal, 1);
+        pipe_coordinator_write(pc, &signal, 1);
         
         if (acquire_result == 0) {
             /* Wait for parent's completion signal */
             char parent_signal;
-            read(sync_pipe[1], &parent_signal, 1); /* This will block until parent closes pipe */
+            pipe_coordinator_read(pc, &parent_signal, 1); /* This will block until parent closes pipe */
         }
         
-        close(sync_pipe[1]);
+        pipe_coordinator_destroy(pc);
         exit(acquire_result);
     } else if (child_pid > 0) {
         /* Parent process */
-        close(sync_pipe[1]); /* Close write end initially */
+        pipe_coordinator_set_child_pid(pc, child_pid);
+        pipe_coordinator_close_write_end(pc); /* Close write end initially */
+        pipe_coordinator_parent_close_read(pc); /* Parent closes its read end */
         
         /* Wait for child to signal lock acquisition */
         char child_signal;
-        ssize_t bytes_read = read(sync_pipe[0], &child_signal, 1);
+        ssize_t bytes_read = pipe_coordinator_read(pc, &child_signal, 1);
         
         if (bytes_read == 1 && child_signal == 'S') {
             TEST_ASSERT(1, "Child successfully acquired lock");
@@ -339,11 +354,11 @@ int test_done_lock(void) {
             TEST_ASSERT(done_result == 0, "Done signal should succeed");
             
             /* Signal child to complete by closing pipe */
-            close(sync_pipe[0]);
+            pipe_coordinator_close_read_end(pc);
             
             /* Wait for child to exit */
             int status;
-            waitpid(child_pid, &status, 0);
+            pipe_coordinator_wait_for_child(pc, &status);
             TEST_ASSERT(WEXITSTATUS(status) == 0, "Child should exit successfully");
             
             /* Give brief time for cleanup */
@@ -354,17 +369,17 @@ int test_done_lock(void) {
             TEST_ASSERT(check_result2 == 0, "Lock should be released after done signal");
         } else {
             TEST_ASSERT(0, "Child failed to acquire lock or communication failed");
-            close(sync_pipe[0]);
+            pipe_coordinator_close_read_end(pc);
             
             /* Kill child if still running */
             kill(child_pid, SIGTERM);
             int status;
-            waitpid(child_pid, &status, 0);
+            pipe_coordinator_wait_for_child(pc, &status);
         }
-    } else {
+        pipe_coordinator_destroy(pc); // Clean up parent's coordinator
+    } else if (child_pid < 0) {
         /* Fork failed */
-        close(sync_pipe[0]);
-        close(sync_pipe[1]);
+        pipe_coordinator_destroy(pc);
         printf("  ✗ FAIL: Fork failed\n");
         fail_count++;
         return 1;
@@ -393,11 +408,12 @@ int test_lock_timeout(void) {
         /* Child process - acquire lock and signal parent */
         close(timeout_pipe[0]); /* Close read end */
         
-        int acquire_result = acquire_lock(test_descriptor, 1, 0.0);
+        int acquire_result = acquire_lock(test_descriptor, 1, 2.0);
         
         /* Signal parent about acquisition */
         char signal = (acquire_result == 0) ? 'S' : 'F';
-        write(timeout_pipe[1], &signal, 1);
+        ssize_t bytes_written = write(timeout_pipe[1], &signal, 1);
+        (void)bytes_written; /* Suppress unused variable warning */
         
         if (acquire_result == 0) {
             /* Hold lock for 3 seconds */
@@ -579,7 +595,7 @@ int test_stale_lock_detection(void) {
     pid_t child_pid = fork();
     if (child_pid == 0) {
         /* Child process - acquire lock and exit without cleanup */
-        int acquire_result = acquire_lock("test_stale_lock", 1, 0.0);
+        int acquire_result = acquire_lock("test_stale_lock", 1, 2.0);
         if (acquire_result == 0) {
             /* Exit without calling release_lock() */
             _exit(0);
@@ -631,22 +647,22 @@ int test_semaphore_slots(void) {
         child_pids[i] = fork();
         if (child_pids[i] == 0) {
             /* Child process - acquire semaphore slot */
-            close(pipes[i][0]); /* Close read end */
+            close(pipes[i][0]); /* Close read end - child only writes */
             
             int acquire_result = acquire_lock(test_descriptor, max_holders, 1.0);
             
             /* Signal parent about result */
             char signal = (acquire_result == 0) ? 'S' : 'F';
-            write(pipes[i][1], &signal, 1);
+            ssize_t bytes_written = write(pipes[i][1], &signal, 1);
+            (void)bytes_written; /* Suppress unused variable warning */
+            close(pipes[i][1]); /* Close write end after signaling */
             
             if (acquire_result == 0) {
-                /* Wait for parent signal to release */
-                char parent_signal;
-                read(pipes[i][1], &parent_signal, 1);
+                /* Hold the lock for a reasonable time for parent to test */
+                sleep(5); /* Hold lock for 5 seconds, then auto-release */
                 release_lock();
             }
             
-            close(pipes[i][1]);
             exit(acquire_result == 0 ? 0 : 1);
         } else if (child_pids[i] < 0) {
             TEST_ASSERT(0, "Failed to fork child process");
@@ -669,8 +685,10 @@ int test_semaphore_slots(void) {
         if (read(pipes[i][0], &child_signal, 1) == 1 && child_signal == 'S') {
             successful_acquisitions++;
         }
+        close(pipes[i][0]); /* Close read end after receiving signal */
     }
     
+    printf("  → Successful acquisitions: %d/%d\n", successful_acquisitions, max_holders);
     TEST_ASSERT(successful_acquisitions == max_holders, 
                 "All children should successfully acquire semaphore slots");
     
@@ -678,17 +696,13 @@ int test_semaphore_slots(void) {
     int fourth_result = acquire_lock(test_descriptor, max_holders, 0.5);
     TEST_ASSERT(fourth_result != 0, "Fourth slot should not be available");
     
-    /* Signal all children to release and finish */
-    for (i = 0; i < max_holders; i++) {
-        close(pipes[i][0]); /* This signals child to proceed */
-    }
-    
-    /* Wait for children to finish */
+    /* Wait for all children to complete naturally */
     for (i = 0; i < max_holders; i++) {
         if (child_pids[i] > 0) {
             int status;
             waitpid(child_pids[i], &status, 0);
-            TEST_ASSERT(WEXITSTATUS(status) == 0, "Child should successfully acquire and release slot");
+            TEST_ASSERT(WIFEXITED(status) && WEXITSTATUS(status) == 0, 
+                       "Child should successfully acquire and release slot");
         }
     }
     
@@ -717,7 +731,8 @@ int run_lock_tests(void) {
     if (lock_dir) {
         char cleanup_cmd[PATH_MAX + 50];
         snprintf(cleanup_cmd, sizeof(cleanup_cmd), "rm -f %s/test_*.lock 2>/dev/null || true", lock_dir);
-        system(cleanup_cmd);
+        int sys_result = system(cleanup_cmd);
+    (void)sys_result; /* Suppress unused variable warning */
         printf("  → Cleaned up existing test locks in %s\n", lock_dir);
     }
     

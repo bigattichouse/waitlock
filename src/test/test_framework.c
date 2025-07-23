@@ -14,18 +14,34 @@
 
 /* Clean up any leftover test artifacts from previous runs */
 void test_cleanup_global(void) {
-    char cmd[512];
+    char cmd[256];
+    int result;
     
-    /* Kill any lingering waitlock test processes */
-    snprintf(cmd, sizeof(cmd), "pkill -f 'waitlock.*test_' 2>/dev/null || true");
-    system(cmd);
+    /* Simple cleanup - just remove test lock files from most common locations */
+    snprintf(cmd, sizeof(cmd), "rm -f /tmp/waitlock/test_*.lock 2>/dev/null || true");
+    result = system(cmd);
+    (void)result; /* Suppress unused variable warning */
     
-    /* Remove any test lock files */
     snprintf(cmd, sizeof(cmd), "rm -f /var/lock/waitlock/test_*.lock 2>/dev/null || true");
-    system(cmd);
+    result = system(cmd);
+    (void)result; /* Suppress unused variable warning */
     
     /* Small delay to ensure cleanup completes */
     usleep(200000); /* 200ms */
+}
+
+/* Lightweight cleanup between test suites */
+void test_cleanup_between_suites(void) {
+    char cmd[256];
+    int result;
+    
+    /* Simple cleanup - just remove test lock files */
+    snprintf(cmd, sizeof(cmd), "rm -f /tmp/waitlock/test_*.lock 2>/dev/null || true");
+    result = system(cmd);
+    (void)result; /* Suppress unused variable warning */
+    
+    /* Brief pause to let filesystem catch up */
+    usleep(100000); /* 100ms */
 }
 
 /* Initialize test context with unique directory */
@@ -82,19 +98,24 @@ int test_teardown_context(test_context_t *ctx) {
     /* Kill any child processes spawned during this test */
     /* Note: This is a simple approach - in production we'd track child PIDs */
     char cmd[512];
+    int result;
+    
     snprintf(cmd, sizeof(cmd), "pkill -P %d 2>/dev/null || true", ctx->test_pid);
-    system(cmd);
+    result = system(cmd);
+    (void)result; /* Suppress unused variable warning */
     
     /* Small delay to let processes cleanup */
     usleep(100000); /* 100ms */
     
     /* Clean up any remaining test lock files */
     snprintf(cmd, sizeof(cmd), "rm -f /var/lock/waitlock/test_*.lock 2>/dev/null || true");
-    system(cmd);
+    result = system(cmd);
+    (void)result; /* Suppress unused variable warning */
     
     /* Remove test directory recursively */
     snprintf(cmd, sizeof(cmd), "rm -rf %s", ctx->test_dir);
-    system(cmd);
+    result = system(cmd);
+    (void)result; /* Suppress unused variable warning */
     
     /* Restore original environment */
     if (ctx->original_lock_dir[0] != '\0') {

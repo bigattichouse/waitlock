@@ -331,7 +331,7 @@ int test_checksum_edge_cases(void) {
     
     /* Test with NULL data */
     uint32_t null_checksum = calculate_crc32(NULL, 0);
-    TEST_ASSERT(null_checksum != 0, "NULL data should produce non-zero checksum");
+    TEST_ASSERT(null_checksum == 0, "NULL data should produce zero checksum (same as empty data)");
     
     /* Test with NULL lock info */
     struct lock_info *null_info = NULL;

@@ -95,7 +95,7 @@ int test_signal_handling_behavior(void) {
         install_signal_handlers();
         
         /* Acquire a lock to test cleanup */
-        int acquire_result = acquire_lock("test_signal_lock", 1, 0.0);
+        int acquire_result = acquire_lock("test_signal_lock", 1, 2.0);
         if (acquire_result == 0) {
             /* Wait for signal */
             while (1) {
@@ -146,7 +146,7 @@ int test_sigint_handling(void) {
         install_signal_handlers();
         
         /* Acquire a lock */
-        int acquire_result = acquire_lock("test_sigint_lock", 1, 0.0);
+        int acquire_result = acquire_lock("test_sigint_lock", 1, 2.0);
         if (acquire_result == 0) {
             /* Wait for signal */
             while (1) {
@@ -193,7 +193,7 @@ int test_sighup_handling(void) {
         install_signal_handlers();
         
         /* Acquire a lock */
-        int acquire_result = acquire_lock("test_sighup_lock", 1, 0.0);
+        int acquire_result = acquire_lock("test_sighup_lock", 1, 2.0);
         if (acquire_result == 0) {
             /* Wait for signal */
             while (1) {
@@ -240,7 +240,7 @@ int test_sigquit_handling(void) {
         install_signal_handlers();
         
         /* Acquire a lock */
-        int acquire_result = acquire_lock("test_sigquit_lock", 1, 0.0);
+        int acquire_result = acquire_lock("test_sigquit_lock", 1, 2.0);
         if (acquire_result == 0) {
             /* Wait for signal */
             while (1) {
@@ -287,7 +287,7 @@ int test_sigpipe_handling(void) {
         install_signal_handlers();
         
         /* Acquire a lock */
-        int acquire_result = acquire_lock("test_sigpipe_lock", 1, 0.0);
+        int acquire_result = acquire_lock("test_sigpipe_lock", 1, 2.0);
         if (acquire_result == 0) {
             /* Wait a bit, then exit normally */
             sleep(2);
@@ -398,7 +398,7 @@ int test_signal_race_conditions(void) {
             char lock_name[64];
             snprintf(lock_name, sizeof(lock_name), "test_race_lock_%d", i);
             
-            int acquire_result = acquire_lock(lock_name, 1, 0.0);
+            int acquire_result = acquire_lock(lock_name, 1, 2.0);
             if (acquire_result == 0) {
                 /* Wait for signal */
                 while (1) {
@@ -447,7 +447,7 @@ int test_signal_multiple_locks(void) {
         install_signal_handlers();
         
         /* Acquire multiple semaphore slots */
-        int result1 = acquire_lock("test_multi_lock", 3, 0.0);
+        int result1 = acquire_lock("test_multi_lock", 3, 2.0);
         if (result1 == 0) {
             /* Hold locks and wait for signal */
             while (1) {

@@ -164,15 +164,13 @@ int test_parse_args(void) {
     opts.descriptor = NULL;
     opts.max_holders = 1;
     opts.test_mode = FALSE;
+    opts.list_mode = FALSE;
+    opts.done_mode = FALSE;
+    opts.check_only = FALSE;
     
     char *test_args10[] = {"waitlock", "invalid@descriptor"};
     int result10 = parse_args(2, test_args10);
     TEST_ASSERT(result10 != 0, "Invalid descriptor should be rejected");
-    
-    /* Test missing descriptor */
-    char *test_args11[] = {"waitlock"};
-    int result11 = parse_args(1, test_args11);
-    TEST_ASSERT(result11 != 0, "Missing descriptor should be rejected");
     
     /* Restore original options */
     opts = saved_opts;

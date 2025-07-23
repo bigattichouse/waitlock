@@ -60,9 +60,34 @@ CHECKSUM_OBJS = $(OBJDIR)/checksum.o
 TEST_SRCS = test/test.c test/unit_tests.c
 TEST_OBJS = $(OBJDIR)/test.o $(OBJDIR)/unit_tests.o
 
+TEST_CHECKSUM_SRCS = test/test_checksum.c
+TEST_CHECKSUM_OBJS = $(OBJDIR)/test_checksum.o
+
+TEST_CORE_SRCS = test/test_core.c
+TEST_CORE_OBJS = $(OBJDIR)/test_core.o
+
+TEST_FRAMEWORK_SRCS = test/test_framework.c
+TEST_FRAMEWORK_OBJS = $(OBJDIR)/test_framework.o
+
+TEST_INTEGRATION_SRCS = test/test_integration.c
+TEST_INTEGRATION_OBJS = $(OBJDIR)/test_integration.o
+
+TEST_LOCK_SRCS = test/test_lock.c
+TEST_LOCK_OBJS = $(OBJDIR)/test_lock.o
+
+TEST_PROCESS_SRCS = test/test_process.c
+TEST_PROCESS_OBJS = $(OBJDIR)/test_process.o
+
+TEST_SIGNAL_SRCS = test/test_signal.c
+TEST_SIGNAL_OBJS = $(OBJDIR)/test_signal.o
+
 # All source files
-ALL_SRCS = $(MAIN_SRCS) $(CORE_SRCS) $(LOCK_SRCS) $(PROCESS_SRCS) $(SIGNAL_SRCS) $(CHECKSUM_SRCS) $(TEST_SRCS)
-ALL_OBJS = $(MAIN_OBJS) $(CORE_OBJS) $(LOCK_OBJS) $(PROCESS_OBJS) $(SIGNAL_OBJS) $(CHECKSUM_OBJS) $(TEST_OBJS)
+PIPE_COORDINATOR_SRCS = pipe_coordinator/pipe_coordinator.c
+PIPE_COORDINATOR_OBJS = $(OBJDIR)/pipe_coordinator.o
+
+# All source files
+ALL_SRCS = $(MAIN_SRCS) $(CORE_SRCS) $(LOCK_SRCS) $(PROCESS_SRCS) $(SIGNAL_SRCS) $(CHECKSUM_SRCS) $(TEST_SRCS) $(PIPE_COORDINATOR_SRCS) $(TEST_CHECKSUM_SRCS) $(TEST_CORE_SRCS) $(TEST_FRAMEWORK_SRCS) $(TEST_INTEGRATION_SRCS) $(TEST_LOCK_SRCS) $(TEST_PROCESS_SRCS) $(TEST_SIGNAL_SRCS)
+ALL_OBJS = $(MAIN_OBJS) $(CORE_OBJS) $(LOCK_OBJS) $(PROCESS_OBJS) $(SIGNAL_OBJS) $(CHECKSUM_OBJS) $(TEST_OBJS) $(PIPE_COORDINATOR_OBJS) $(TEST_CHECKSUM_OBJS) $(TEST_CORE_OBJS) $(TEST_FRAMEWORK_OBJS) $(TEST_INTEGRATION_OBJS) $(TEST_LOCK_OBJS) $(TEST_PROCESS_OBJS) $(TEST_SIGNAL_OBJS)
 
 # Main target
 TARGET = $(BINDIR)/waitlock
@@ -104,6 +129,38 @@ $(OBJDIR)/test.o: test/test.c waitlock.h
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(OBJDIR)/unit_tests.o: test/unit_tests.c waitlock.h
+	mkdir -p $(OBJDIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(OBJDIR)/pipe_coordinator.o: pipe_coordinator/pipe_coordinator.c pipe_coordinator/pipe_coordinator.h
+	mkdir -p $(OBJDIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(OBJDIR)/test_checksum.o: test/test_checksum.c waitlock.h
+	mkdir -p $(OBJDIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(OBJDIR)/test_core.o: test/test_core.c waitlock.h
+	mkdir -p $(OBJDIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(OBJDIR)/test_framework.o: test/test_framework.c waitlock.h
+	mkdir -p $(OBJDIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(OBJDIR)/test_integration.o: test/test_integration.c waitlock.h
+	mkdir -p $(OBJDIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(OBJDIR)/test_lock.o: test/test_lock.c waitlock.h
+	mkdir -p $(OBJDIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(OBJDIR)/test_process.o: test/test_process.c waitlock.h
+	mkdir -p $(OBJDIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(OBJDIR)/test_signal.o: test/test_signal.c waitlock.h
 	mkdir -p $(OBJDIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 

@@ -49,12 +49,22 @@ int run_unit_tests(void) {
     /* Clean up any leftover test artifacts from previous runs */
     test_cleanup_global();
     
-    /* Run all test suites */
+    /* Run all test suites with cleanup between each */
     run_test_suite("Checksum", run_checksum_tests);
+    test_cleanup_between_suites();
+    
     run_test_suite("Core", run_core_tests);
+    test_cleanup_between_suites();
+    
     run_test_suite("Process", run_process_tests);
+    test_cleanup_between_suites();
+    
     run_test_suite("Signal", run_signal_tests);
+    test_cleanup_between_suites();
+    
     run_test_suite("Lock", run_lock_tests);
+    test_cleanup_between_suites();
+    
     run_test_suite("Integration", run_integration_tests);
     
     /* Print final summary */
