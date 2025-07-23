@@ -61,8 +61,12 @@ int test_setup_context(test_context_t *ctx, const char *test_name) {
              "/tmp/waitlock_test_%s_%d_%ld", 
              test_name, getpid(), time(NULL));
     
-    snprintf(ctx->lock_dir, sizeof(ctx->lock_dir), 
-             "%s/locks", ctx->test_dir);
+    int ret = snprintf(ctx->lock_dir, sizeof(ctx->lock_dir), 
+                       "%s/locks", ctx->test_dir);
+    if (ret >= (int)sizeof(ctx->lock_dir)) {
+        printf("Test directory path too long\n");
+        return -1;
+    }
     
     /* Create directories */
     if (mkdir(ctx->test_dir, 0755) != 0) {
@@ -100,6 +104,7 @@ int test_teardown_context(test_context_t *ctx) {
     /* Note: This is a simple approach - in production we'd track child PIDs */
     char cmd[512];
     int result;
+    int ret;
     
     snprintf(cmd, sizeof(cmd), "pkill -P %d 2>/dev/null || true", ctx->test_pid);
     result = system(cmd);
@@ -114,9 +119,13 @@ int test_teardown_context(test_context_t *ctx) {
     (void)result; /* Suppress unused variable warning */
     
     /* Remove test directory recursively */
-    snprintf(cmd, sizeof(cmd), "rm -rf %s", ctx->test_dir);
-    result = system(cmd);
-    (void)result; /* Suppress unused variable warning */
+    ret = snprintf(cmd, sizeof(cmd), "rm -rf %s", ctx->test_dir);
+    if (ret >= (int)sizeof(cmd)) {
+        printf("Warning: test directory path too long for cleanup command\n");
+    } else {
+        result = system(cmd);
+        (void)result; /* Suppress unused variable warning */
+    }
     
     /* Restore original environment */
     if (ctx->original_lock_dir[0] != '\0') {

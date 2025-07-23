@@ -95,7 +95,6 @@ int portable_lock(int fd, int operation) {
 int acquire_lock(const char *descriptor, int max_holders, double timeout) {
     char *lock_dir;
     char lock_path[PATH_MAX];
-    char temp_path[PATH_MAX];
     char hostname[MAX_HOSTNAME];
     struct lock_info info;
     DIR *dir;
