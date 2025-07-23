@@ -18,9 +18,10 @@
 #define PC_PARENT_TO_CHILD 0
 #define PC_CHILD_TO_PARENT 1
 
-#define PC_ROLE_UNSET  0
-#define PC_ROLE_PARENT 1
-#define PC_ROLE_CHILD  2
+#define PC_ROLE_UNSET    0
+#define PC_ROLE_PREPARED 1
+#define PC_ROLE_PARENT   2
+#define PC_ROLE_CHILD    3
 
 /* Simplified ProcessCoordinator structure */
 typedef struct {

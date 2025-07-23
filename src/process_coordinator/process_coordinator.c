@@ -53,12 +53,19 @@ int pc_prepare_fork(ProcessCoordinator *pc) {
         return pc_set_error(pc, "Failed to create child->parent pipe");
     }
     
+    /* Mark as prepared to prevent double preparation */
+    pc->role = PC_ROLE_PREPARED;
+    
     return 0;
 }
 
 /* Parent calls this after successful fork */
 int pc_after_fork_parent(ProcessCoordinator *pc, pid_t child_pid) {
     if (!pc || child_pid <= 0) return -1;
+    
+    if (pc->role != PC_ROLE_PREPARED) {
+        return pc_set_error(pc, "ProcessCoordinator not prepared for fork");
+    }
     
     pc->role = PC_ROLE_PARENT;
     pc->child_pid = child_pid;
@@ -73,6 +80,10 @@ int pc_after_fork_parent(ProcessCoordinator *pc, pid_t child_pid) {
 /* Child calls this after fork */
 int pc_after_fork_child(ProcessCoordinator *pc) {
     if (!pc) return -1;
+    
+    if (pc->role != PC_ROLE_PREPARED) {
+        return pc_set_error(pc, "ProcessCoordinator not prepared for fork");
+    }
     
     pc->role = PC_ROLE_CHILD;
     pc->child_pid = getpid();
