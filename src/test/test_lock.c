@@ -7,7 +7,7 @@
 #include "../lock/lock.h"
 #include "../core/core.h"
 #include "../process/process.h"
-#include "../pipe_coordinator/pipe_coordinator.h"
+#include "../process_coordinator/process_coordinator.h"
 #include <time.h>
 
 /* Test framework */
@@ -128,9 +128,17 @@ int test_acquire_lock(void) {
     TEST_ASSERT(result3 == 0, "Should be able to acquire semaphore slot");
     
     /* Test second semaphore slot with proper coordination */
-    PipeCoordinator *pc = pipe_coordinator_create();
+    ProcessCoordinator *pc = pc_create();
     if (pc == NULL) {
-        TEST_ASSERT(0, "Failed to create PipeCoordinator for semaphore test");
+        TEST_ASSERT(0, "Failed to create ProcessCoordinator for semaphore test");
+        release_lock();
+        return 1;
+    }
+    
+    pc_result_t pc_result = pc_prepare_fork(pc);
+    if (pc_result != PC_SUCCESS) {
+        TEST_ASSERT(0, "Failed to prepare fork for semaphore test");
+        pc_destroy(pc);
         release_lock();
         return 1;
     }
@@ -138,14 +146,21 @@ int test_acquire_lock(void) {
     pid_t child_pid = fork();
     if (child_pid == 0) {
         /* Child process */
-        pipe_coordinator_close_read_end(pc); /* Child closes read end */
+        pc_result = pc_after_fork_child(pc);
+        if (pc_result != PC_SUCCESS) {
+            pc_destroy(pc);
+            exit(1);
+        }
         
         int child_result = acquire_lock("test_semaphore", 3, 1.0);
         
         /* Signal parent about result */
         char signal = (child_result == 0) ? 'S' : 'F';
-        pipe_coordinator_write(pc, &signal, 1);
-        pipe_coordinator_close_write_end(pc); /* Close write end after signaling */
+        pc_result = pc_child_send(pc, &signal, 1);
+        if (pc_result != PC_SUCCESS) {
+            pc_destroy(pc);
+            exit(1);
+        }
         
         if (child_result == 0) {
             /* Hold lock briefly for parent to test, then release */
@@ -153,32 +168,42 @@ int test_acquire_lock(void) {
             release_lock();
         }
         
-        pipe_coordinator_destroy(pc);
+        pc_destroy(pc);
         exit(child_result == 0 ? 0 : 1);
     } else if (child_pid > 0) {
         /* Parent process */
-        pipe_coordinator_set_child_pid(pc, child_pid);
-        pipe_coordinator_close_write_end(pc); /* Parent closes write end */
+        pc_result = pc_after_fork_parent(pc, child_pid);
+        if (pc_result != PC_SUCCESS) {
+            TEST_ASSERT(0, "Failed to set up parent for semaphore test");
+            pc_destroy(pc);
+            release_lock();
+            return 1;
+        }
         
         /* Wait for child result */
         char child_signal;
-        if (pipe_coordinator_read(pc, &child_signal, 1) == 1 && child_signal == 'S') {
+        pc_result = pc_parent_receive(pc, &child_signal, 1, 3000); /* 3 second timeout */
+        if (pc_result == PC_SUCCESS && child_signal == 'S') {
             TEST_ASSERT(1, "Should be able to acquire second semaphore slot");
             
             /* Wait for child to complete */
             int status;
-            pipe_coordinator_wait_for_child(pc, &status);
-            TEST_ASSERT(WEXITSTATUS(status) == 0, "Child should exit successfully");
+            pc_result = pc_parent_wait_for_child_exit(pc, &status);
+            if (pc_result == PC_SUCCESS) {
+                TEST_ASSERT(WEXITSTATUS(status) == 0, "Child should exit successfully");
+            }
         } else {
             TEST_ASSERT(0, "Child failed to acquire semaphore slot");
             kill(child_pid, SIGTERM);
             int status;
-            pipe_coordinator_wait_for_child(pc, &status);
+            pc_parent_wait_for_child_exit(pc, &status);
         }
-        pipe_coordinator_destroy(pc);
+        pc_destroy(pc);
     } else {
         TEST_ASSERT(0, "Failed to fork child process for semaphore test");
-        pipe_coordinator_destroy(pc); // Clean up if fork fails
+        pc_destroy(pc);
+        release_lock();
+        return 1;
     }
     
     release_lock();
@@ -298,11 +323,17 @@ int test_done_lock(void) {
     int result1 = done_lock(test_descriptor);
     TEST_ASSERT(result1 != 0, "Done on non-existent lock should fail");
     
-    /* Create pipe for parent-child coordination */
-    PipeCoordinator *pc = pipe_coordinator_create();
+    /* Create ProcessCoordinator for parent-child coordination */
+    ProcessCoordinator *pc = pc_create();
     if (pc == NULL) {
-        printf("  ✗ FAIL: Cannot create PipeCoordinator\n");
-        fail_count++;
+        TEST_ASSERT(0, "Failed to create ProcessCoordinator");
+        return 1;
+    }
+    
+    pc_result_t pc_result = pc_prepare_fork(pc);
+    if (pc_result != PC_SUCCESS) {
+        TEST_ASSERT(0, "Failed to prepare fork");
+        pc_destroy(pc);
         return 1;
     }
     
@@ -310,34 +341,45 @@ int test_done_lock(void) {
     pid_t child_pid = fork();
     if (child_pid == 0) {
         /* Child process - acquire lock and signal parent */
-        pipe_coordinator_close_read_end(pc); /* Child closes read end */
+        pc_result = pc_after_fork_child(pc);
+        if (pc_result != PC_SUCCESS) {
+            pc_destroy(pc);
+            exit(1);
+        }
         
         int acquire_result = acquire_lock(test_descriptor, 1, 2.0);
         
         /* Signal parent about acquisition result */
         char signal = (acquire_result == 0) ? 'S' : 'F'; /* Success/Fail */
-        pipe_coordinator_write(pc, &signal, 1);
-        pipe_coordinator_close_write_end(pc); /* Close write end after signaling */
+        pc_result = pc_child_send(pc, &signal, 1);
+        if (pc_result != PC_SUCCESS) {
+            pc_destroy(pc);
+            exit(1);
+        }
         
         if (acquire_result == 0) {
-            /* Wait for done signal to release lock (implement signal handler) */
+            /* Wait for done signal to release lock (done_lock sends signal to process) */
             while (1) {
                 sleep(1); /* Wait for done signal or termination */
             }
         }
         
-        pipe_coordinator_destroy(pc);
+        pc_destroy(pc);
         exit(acquire_result);
     } else if (child_pid > 0) {
         /* Parent process */
-        pipe_coordinator_set_child_pid(pc, child_pid);
-        pipe_coordinator_close_write_end(pc); /* Parent closes write end */
+        pc_result = pc_after_fork_parent(pc, child_pid);
+        if (pc_result != PC_SUCCESS) {
+            TEST_ASSERT(0, "Failed to set up parent");
+            pc_destroy(pc);
+            return 1;
+        }
         
         /* Wait for child to signal lock acquisition */
         char child_signal;
-        ssize_t bytes_read = pipe_coordinator_read(pc, &child_signal, 1);
+        pc_result = pc_parent_receive(pc, &child_signal, 1, 3000); /* 3 second timeout */
         
-        if (bytes_read == 1 && child_signal == 'S') {
+        if (pc_result == PC_SUCCESS && child_signal == 'S') {
             TEST_ASSERT(1, "Child successfully acquired lock");
             
             /* Give child time to fully initialize */
@@ -353,7 +395,8 @@ int test_done_lock(void) {
             
             /* Wait for child to exit */
             int status;
-            pipe_coordinator_wait_for_child(pc, &status);
+            pc_result = pc_parent_wait_for_child_exit(pc, &status);
+            TEST_ASSERT(pc_result == PC_SUCCESS, "Should wait for child successfully");
             TEST_ASSERT(WEXITSTATUS(status) == 0, "Child should exit successfully");
             
             /* Give brief time for cleanup */
@@ -364,19 +407,17 @@ int test_done_lock(void) {
             TEST_ASSERT(check_result2 == 0, "Lock should be released after done signal");
         } else {
             TEST_ASSERT(0, "Child failed to acquire lock or communication failed");
-            pipe_coordinator_close_read_end(pc);
             
             /* Kill child if still running */
             kill(child_pid, SIGTERM);
             int status;
-            pipe_coordinator_wait_for_child(pc, &status);
+            pc_parent_wait_for_child_exit(pc, &status);
         }
-        pipe_coordinator_destroy(pc); // Clean up parent's coordinator
-    } else if (child_pid < 0) {
+        pc_destroy(pc);
+    } else {
         /* Fork failed */
-        pipe_coordinator_destroy(pc);
-        printf("  ✗ FAIL: Fork failed\n");
-        fail_count++;
+        TEST_ASSERT(0, "Fork failed");
+        pc_destroy(pc);
         return 1;
     }
     
