@@ -1,12 +1,11 @@
 #include "process_coordinator.h"
-#include <sys/select.h>
-#include <sys/time.h>
 
-/* Internal helper functions */
-static pc_result_t pc_set_error(ProcessCoordinator *pc, pc_result_t error, const char *msg);
-static pc_result_t pc_validate_state(ProcessCoordinator *pc, pc_state_t expected_state);
-static pc_result_t pc_close_pipe_safe(int *pipe_fd);
-static pc_result_t pc_wait_for_data(int fd, int timeout_ms);
+/* Simple ProcessCoordinator implementation based on debug_semaphore_exec.c pattern */
+/* No complex state machine, just reliable pipes + select() */
+
+static int pc_set_error(ProcessCoordinator *pc, const char *msg);
+static int pc_wait_for_data(int fd, int timeout_ms);
+static void pc_close_pipe_safe(int *fd);
 
 /* Create and initialize a ProcessCoordinator */
 ProcessCoordinator* pc_create(void) {
@@ -15,290 +14,155 @@ ProcessCoordinator* pc_create(void) {
         return NULL;
     }
     
-    /* Initialize all fields to safe defaults */
-    pc->parent_to_child[0] = -1;
-    pc->parent_to_child[1] = -1;
-    pc->child_to_parent[0] = -1;
-    pc->child_to_parent[1] = -1;
+    /* Initialize all pipe FDs to -1 (closed) */
+    pc->pipes[PC_PARENT_TO_CHILD][0] = -1;  /* parent writes, child reads */
+    pc->pipes[PC_PARENT_TO_CHILD][1] = -1;
+    pc->pipes[PC_CHILD_TO_PARENT][0] = -1;  /* child writes, parent reads */
+    pc->pipes[PC_CHILD_TO_PARENT][1] = -1;
     
     pc->child_pid = -1;
     pc->role = PC_ROLE_UNSET;
-    pc->state = PC_STATE_UNINITIALIZED;
-    
-    pc->pipes_created = 0;
-    pc->forks_done = 0;
-    
-    pc->cleanup_in_progress = 0;
-    pc->child_exited = 0;
-    
-    pc->last_error = PC_SUCCESS;
-    memset(pc->error_msg, 0, sizeof(pc->error_msg));
+    pc->error_msg[0] = '\0';
     
     return pc;
 }
 
 /* Prepare for fork by creating communication pipes */
-pc_result_t pc_prepare_fork(ProcessCoordinator *pc) {
-    if (!pc) return PC_ERROR_INVALID_STATE;
+int pc_prepare_fork(ProcessCoordinator *pc) {
+    if (!pc) return -1;
     
-    if (pc->state != PC_STATE_UNINITIALIZED) {
-        return pc_set_error(pc, PC_ERROR_INVALID_STATE, "ProcessCoordinator already initialized");
+    if (pc->role != PC_ROLE_UNSET) {
+        return pc_set_error(pc, "ProcessCoordinator already initialized");
     }
     
     /* Create parent->child pipe */
-    if (pipe(pc->parent_to_child) != 0) {
-        return pc_set_error(pc, PC_ERROR_PIPE_FAILED, "Failed to create parent->child pipe");
+    if (pipe(pc->pipes[PC_PARENT_TO_CHILD]) != 0) {
+        return pc_set_error(pc, "Failed to create parent->child pipe");
     }
     
     /* Create child->parent pipe */
-    if (pipe(pc->child_to_parent) != 0) {
-        pc_close_pipe_safe(&pc->parent_to_child[0]);
-        pc_close_pipe_safe(&pc->parent_to_child[1]);
-        return pc_set_error(pc, PC_ERROR_PIPE_FAILED, "Failed to create child->parent pipe");
+    if (pipe(pc->pipes[PC_CHILD_TO_PARENT]) != 0) {
+        pc_close_pipe_safe(&pc->pipes[PC_PARENT_TO_CHILD][0]);
+        pc_close_pipe_safe(&pc->pipes[PC_PARENT_TO_CHILD][1]);
+        return pc_set_error(pc, "Failed to create child->parent pipe");
     }
     
-    pc->pipes_created = 1;
-    pc->state = PC_STATE_READY;
-    
-    return PC_SUCCESS;
+    return 0;
 }
 
 /* Parent calls this after successful fork */
-pc_result_t pc_after_fork_parent(ProcessCoordinator *pc, pid_t child_pid) {
-    if (!pc) return PC_ERROR_INVALID_STATE;
+int pc_after_fork_parent(ProcessCoordinator *pc, pid_t child_pid) {
+    if (!pc || child_pid <= 0) return -1;
     
-    pc_result_t result = pc_validate_state(pc, PC_STATE_READY);
-    if (result != PC_SUCCESS) return result;
-    
-    if (child_pid <= 0) {
-        return pc_set_error(pc, PC_ERROR_FORK_FAILED, "Invalid child PID");
-    }
-    
-    /* Set up parent role */
     pc->role = PC_ROLE_PARENT;
     pc->child_pid = child_pid;
-    pc->forks_done = 1;
     
-    /* Parent closes read end of parent->child pipe and write end of child->parent pipe */
-    pc_close_pipe_safe(&pc->parent_to_child[0]);
-    pc_close_pipe_safe(&pc->child_to_parent[1]);
+    /* Parent closes unused pipe ends */
+    pc_close_pipe_safe(&pc->pipes[PC_PARENT_TO_CHILD][0]); /* Close read end of parent->child */
+    pc_close_pipe_safe(&pc->pipes[PC_CHILD_TO_PARENT][1]); /* Close write end of child->parent */
     
-    pc->state = PC_STATE_FORKED;
-    return PC_SUCCESS;
+    return 0;
 }
 
 /* Child calls this after fork */
-pc_result_t pc_after_fork_child(ProcessCoordinator *pc) {
-    if (!pc) return PC_ERROR_INVALID_STATE;
+int pc_after_fork_child(ProcessCoordinator *pc) {
+    if (!pc) return -1;
     
-    pc_result_t result = pc_validate_state(pc, PC_STATE_READY);
-    if (result != PC_SUCCESS) return result;
-    
-    /* Set up child role */
     pc->role = PC_ROLE_CHILD;
     pc->child_pid = getpid();
-    pc->forks_done = 1;
     
-    /* Child closes write end of parent->child pipe and read end of child->parent pipe */
-    pc_close_pipe_safe(&pc->parent_to_child[1]);
-    pc_close_pipe_safe(&pc->child_to_parent[0]);
+    /* Child closes unused pipe ends */
+    pc_close_pipe_safe(&pc->pipes[PC_PARENT_TO_CHILD][1]); /* Close write end of parent->child */
+    pc_close_pipe_safe(&pc->pipes[PC_CHILD_TO_PARENT][0]); /* Close read end of child->parent */
     
-    pc->state = PC_STATE_FORKED;
-    return PC_SUCCESS;
+    return 0;
 }
 
-/* Parent sends data to child */
-pc_result_t pc_parent_send(ProcessCoordinator *pc, const void *data, size_t len) {
-    if (!pc || !data) return PC_ERROR_INVALID_STATE;
+/* Send data - automatically chooses correct pipe based on role */
+ssize_t pc_send(ProcessCoordinator *pc, const void *data, size_t len) {
+    if (!pc || !data) return -1;
     
-    if (pc->role != PC_ROLE_PARENT) {
-        return pc_set_error(pc, PC_ERROR_INVALID_STATE, "Only parent can send to child");
+    int write_fd = -1;
+    
+    if (pc->role == PC_ROLE_PARENT) {
+        write_fd = pc->pipes[PC_PARENT_TO_CHILD][1]; /* Parent writes to child */
+    } else if (pc->role == PC_ROLE_CHILD) {
+        write_fd = pc->pipes[PC_CHILD_TO_PARENT][1]; /* Child writes to parent */
+    } else {
+        pc_set_error(pc, "Invalid role for sending");
+        return -1;
     }
     
-    if (pc->parent_to_child[1] == -1) {
-        return pc_set_error(pc, PC_ERROR_INVALID_STATE, "Parent->child pipe not available");
+    if (write_fd == -1) {
+        pc_set_error(pc, "Write pipe not available");
+        return -1;
     }
     
-    ssize_t written = write(pc->parent_to_child[1], data, len);
+    ssize_t written = write(write_fd, data, len);
     if (written != (ssize_t)len) {
-        return pc_set_error(pc, PC_ERROR_IO_FAILED, "Failed to write to child");
+        pc_set_error(pc, "Failed to write all data");
+        return -1;
     }
     
-    return PC_SUCCESS;
+    return written;
 }
 
-/* Parent receives data from child */
-pc_result_t pc_parent_receive(ProcessCoordinator *pc, void *data, size_t len, int timeout_ms) {
-    if (!pc || !data) return PC_ERROR_INVALID_STATE;
+/* Receive data - automatically chooses correct pipe based on role */
+ssize_t pc_receive(ProcessCoordinator *pc, void *data, size_t len, int timeout_ms) {
+    if (!pc || !data) return -1;
     
-    if (pc->role != PC_ROLE_PARENT) {
-        return pc_set_error(pc, PC_ERROR_INVALID_STATE, "Only parent can receive from child");
+    int read_fd = -1;
+    
+    if (pc->role == PC_ROLE_PARENT) {
+        read_fd = pc->pipes[PC_CHILD_TO_PARENT][0]; /* Parent reads from child */
+    } else if (pc->role == PC_ROLE_CHILD) {
+        read_fd = pc->pipes[PC_PARENT_TO_CHILD][0]; /* Child reads from parent */
+    } else {
+        pc_set_error(pc, "Invalid role for receiving");
+        return -1;
     }
     
-    if (pc->child_to_parent[0] == -1) {
-        return pc_set_error(pc, PC_ERROR_INVALID_STATE, "Child->parent pipe not available");
+    if (read_fd == -1) {
+        pc_set_error(pc, "Read pipe not available");
+        return -1;
     }
     
     /* Wait for data with timeout */
-    pc_result_t wait_result = pc_wait_for_data(pc->child_to_parent[0], timeout_ms);
-    if (wait_result != PC_SUCCESS) {
-        return wait_result;
+    if (pc_wait_for_data(read_fd, timeout_ms) != 0) {
+        pc_set_error(pc, "Timeout waiting for data");
+        return -1;
     }
     
-    ssize_t bytes_read = read(pc->child_to_parent[0], data, len);
+    ssize_t bytes_read = read(read_fd, data, len);
     if (bytes_read <= 0) {
-        return pc_set_error(pc, PC_ERROR_IO_FAILED, "Failed to read from child");
-    }
-    if ((size_t)bytes_read < len) {
-        ((char*)data)[bytes_read] = '\0';
+        pc_set_error(pc, bytes_read == 0 ? "Pipe closed unexpectedly" : "Read failed");
+        return -1;
     }
     
-    return PC_SUCCESS;
+    return bytes_read;
 }
 
-/* Child sends data to parent */
-pc_result_t pc_child_send(ProcessCoordinator *pc, const void *data, size_t len) {
-    if (!pc || !data) return PC_ERROR_INVALID_STATE;
+/* Wait for a specific signal character */
+int pc_wait_for_signal(ProcessCoordinator *pc, char expected_signal, int timeout_ms) {
+    char signal;
+    ssize_t result = pc_receive(pc, &signal, 1, timeout_ms);
     
-    if (pc->role != PC_ROLE_CHILD) {
-        return pc_set_error(pc, PC_ERROR_INVALID_STATE, "Only child can send to parent");
+    if (result != 1) {
+        return -1;
     }
     
-    if (pc->child_to_parent[1] == -1) {
-        return pc_set_error(pc, PC_ERROR_INVALID_STATE, "Child->parent pipe not available");
+    if (signal != expected_signal) {
+        pc_set_error(pc, "Received unexpected signal");
+        return -1;
     }
     
-    ssize_t written = write(pc->child_to_parent[1], data, len);
-    if (written != (ssize_t)len) {
-        return pc_set_error(pc, PC_ERROR_IO_FAILED, "Failed to write to parent");
-    }
-    
-    return PC_SUCCESS;
+    return 0;
 }
 
-/* Child receives data from parent */
-pc_result_t pc_child_receive(ProcessCoordinator *pc, void *data, size_t len, int timeout_ms) {
-    if (!pc || !data) return PC_ERROR_INVALID_STATE;
-    
-    if (pc->role != PC_ROLE_CHILD) {
-        return pc_set_error(pc, PC_ERROR_INVALID_STATE, "Only child can receive from parent");
-    }
-    
-    if (pc->parent_to_child[0] == -1) {
-        return pc_set_error(pc, PC_ERROR_INVALID_STATE, "Parent->child pipe not available");
-    }
-    
-    /* Wait for data with timeout */
-    pc_result_t wait_result = pc_wait_for_data(pc->parent_to_child[0], timeout_ms);
-    if (wait_result != PC_SUCCESS) {
-        return wait_result;
-    }
-    
-    ssize_t bytes_read = read(pc->parent_to_child[0], data, len);
-    if (bytes_read <= 0) {
-        return pc_set_error(pc, PC_ERROR_IO_FAILED, "Failed to read from parent");
-    }
-    if ((size_t)bytes_read < len) {
-        ((char*)data)[bytes_read] = '\0';
-    }
-    
-    return PC_SUCCESS;
-}
-
-/* Parent waits for child to signal ready */
-pc_result_t pc_parent_wait_for_child_ready(ProcessCoordinator *pc, int timeout_ms) {
-    if (!pc) return PC_ERROR_INVALID_STATE;
-    
-    if (pc->role != PC_ROLE_PARENT) {
-        return pc_set_error(pc, PC_ERROR_INVALID_STATE, "Only parent can wait for child ready");
-    }
-    
-    char ready_signal;
-    pc_result_t result = pc_parent_receive(pc, &ready_signal, 1, timeout_ms);
-    if (result != PC_SUCCESS) {
-        return result;
-    }
-    
-    if (ready_signal != 'R') {
-        return pc_set_error(pc, PC_ERROR_IO_FAILED, "Invalid ready signal from child");
-    }
-    
-    pc->state = PC_STATE_COORDINATING;
-    return PC_SUCCESS;
-}
-
-/* Child signals ready to parent */
-pc_result_t pc_child_signal_ready(ProcessCoordinator *pc) {
-    if (!pc) return PC_ERROR_INVALID_STATE;
-    
-    if (pc->role != PC_ROLE_CHILD) {
-        return pc_set_error(pc, PC_ERROR_INVALID_STATE, "Only child can signal ready");
-    }
-    
-    char ready_signal = 'R';
-    pc_result_t result = pc_child_send(pc, &ready_signal, 1);
-    if (result == PC_SUCCESS) {
-        pc->state = PC_STATE_COORDINATING;
-    }
-    
-    return result;
-}
-
-/* Parent waits for child to exit */
-pc_result_t pc_parent_wait_for_child_exit(ProcessCoordinator *pc, int *exit_status) {
-    if (!pc) return PC_ERROR_INVALID_STATE;
-    
-    if (pc->role != PC_ROLE_PARENT) {
-        return pc_set_error(pc, PC_ERROR_INVALID_STATE, "Only parent can wait for child exit");
-    }
-    
-    if (pc->child_pid <= 0) {
-        return pc_set_error(pc, PC_ERROR_INVALID_STATE, "No child process to wait for");
-    }
-    
-    int status;
-    pid_t result = waitpid(pc->child_pid, &status, 0);
-    if (result != pc->child_pid) {
-        return pc_set_error(pc, PC_ERROR_CHILD_DIED, "waitpid failed");
-    }
-    
-    if (exit_status) {
-        *exit_status = status;
-    }
-    
-    pc->child_exited = 1;
-    pc->state = PC_STATE_COMPLETED;
-    return PC_SUCCESS;
-}
-
-/* Child exits cleanly */
-pc_result_t pc_child_exit(ProcessCoordinator *pc, int exit_code) {
-    if (!pc) return PC_ERROR_INVALID_STATE;
-    
-    if (pc->role != PC_ROLE_CHILD) {
-        return pc_set_error(pc, PC_ERROR_INVALID_STATE, "Only child can exit");
-    }
-    
-    /* Clean up child resources before exit */
-    pc_close_pipe_safe(&pc->parent_to_child[0]);
-    pc_close_pipe_safe(&pc->child_to_parent[1]);
-    
-    pc->state = PC_STATE_COMPLETED;
-    
-    /* Note: pc_destroy should be called before this, but we clean up just in case */
-    exit(exit_code);
-}
-
-/* Get error string */
-const char* pc_get_error_string(ProcessCoordinator *pc) {
-    if (!pc) return "Invalid ProcessCoordinator";
-    return pc->error_msg[0] ? pc->error_msg : "No error";
-}
-
-/* Get current state */
-pc_state_t pc_get_state(ProcessCoordinator *pc) {
-    if (!pc) return PC_STATE_ERROR;
-    return pc->state;
+/* Send a signal character */
+int pc_send_signal(ProcessCoordinator *pc, char signal) {
+    ssize_t result = pc_send(pc, &signal, 1);
+    return (result == 1) ? 0 : -1;
 }
 
 /* Check if child is alive */
@@ -311,26 +175,27 @@ int pc_is_child_alive(ProcessCoordinator *pc) {
     return (kill(pc->child_pid, 0) == 0);
 }
 
+/* Get error string */
+const char* pc_get_error_string(ProcessCoordinator *pc) {
+    if (!pc) return "Invalid ProcessCoordinator";
+    return pc->error_msg[0] ? pc->error_msg : "No error";
+}
+
 /* Clean up and free ProcessCoordinator */
 void pc_destroy(ProcessCoordinator *pc) {
     if (!pc) return;
     
-    /* Prevent re-entrant cleanup */
-    if (pc->cleanup_in_progress) return;
-    pc->cleanup_in_progress = 1;
-    
     /* Close all pipe file descriptors */
-    pc_close_pipe_safe(&pc->parent_to_child[0]);
-    pc_close_pipe_safe(&pc->parent_to_child[1]);
-    pc_close_pipe_safe(&pc->child_to_parent[0]);
-    pc_close_pipe_safe(&pc->child_to_parent[1]);
+    pc_close_pipe_safe(&pc->pipes[PC_PARENT_TO_CHILD][0]);
+    pc_close_pipe_safe(&pc->pipes[PC_PARENT_TO_CHILD][1]);
+    pc_close_pipe_safe(&pc->pipes[PC_CHILD_TO_PARENT][0]);
+    pc_close_pipe_safe(&pc->pipes[PC_CHILD_TO_PARENT][1]);
     
     /* Clean up child process if we're the parent and child is still alive */
-    if (pc->role == PC_ROLE_PARENT && pc->child_pid > 0 && !pc->child_exited) {
+    if (pc->role == PC_ROLE_PARENT && pc->child_pid > 0) {
         if (pc_is_child_alive(pc)) {
             kill(pc->child_pid, SIGTERM);
-            /* Give child time to clean up */
-            usleep(100000); /* 100ms */
+            usleep(100000); /* 100ms grace period */
             if (pc_is_child_alive(pc)) {
                 kill(pc->child_pid, SIGKILL);
             }
@@ -343,53 +208,83 @@ void pc_destroy(ProcessCoordinator *pc) {
     free(pc);
 }
 
-/* Emergency cleanup for signal handlers */
-void pc_emergency_cleanup(ProcessCoordinator *pc) {
-    if (!pc) return;
+/* Legacy API compatibility functions */
+
+pc_result_t pc_parent_send(ProcessCoordinator *pc, const void *data, size_t len) {
+    if (!pc || pc->role != PC_ROLE_PARENT) return -1;
+    return (pc_send(pc, data, len) == (ssize_t)len) ? PC_SUCCESS : -1;
+}
+
+pc_result_t pc_parent_receive(ProcessCoordinator *pc, void *data, size_t len, int timeout_ms) {
+    if (!pc || pc->role != PC_ROLE_PARENT) return -1;
+    ssize_t result = pc_receive(pc, data, len - 1, timeout_ms); /* Leave room for null terminator */
+    if (result > 0) {
+        ((char*)data)[result] = '\0'; /* Null terminate for legacy compatibility */
+        return result; /* Return actual bytes read for legacy compatibility */
+    }
+    return -1;
+}
+
+pc_result_t pc_child_send(ProcessCoordinator *pc, const void *data, size_t len) {
+    if (!pc || pc->role != PC_ROLE_CHILD) return -1;
+    return (pc_send(pc, data, len) == (ssize_t)len) ? PC_SUCCESS : -1;
+}
+
+pc_result_t pc_child_receive(ProcessCoordinator *pc, void *data, size_t len, int timeout_ms) {
+    if (!pc || pc->role != PC_ROLE_CHILD) return -1;
+    ssize_t result = pc_receive(pc, data, len - 1, timeout_ms); /* Leave room for null terminator */
+    if (result > 0) {
+        ((char*)data)[result] = '\0'; /* Null terminate for legacy compatibility */
+        return result; /* Return actual bytes read for legacy compatibility */
+    }
+    return -1;
+}
+
+pc_result_t pc_parent_wait_for_child_ready(ProcessCoordinator *pc, int timeout_ms) {
+    if (!pc || pc->role != PC_ROLE_PARENT) return -1;
+    return pc_wait_for_signal(pc, 'R', timeout_ms);
+}
+
+pc_result_t pc_child_signal_ready(ProcessCoordinator *pc) {
+    if (!pc || pc->role != PC_ROLE_CHILD) return -1;
+    return pc_send_signal(pc, 'R');
+}
+
+pc_result_t pc_parent_wait_for_child_exit(ProcessCoordinator *pc, int *exit_status) {
+    if (!pc || pc->role != PC_ROLE_PARENT || pc->child_pid <= 0) return -1;
     
-    /* Quick, signal-safe cleanup */
-    if (pc->parent_to_child[0] != -1) close(pc->parent_to_child[0]);
-    if (pc->parent_to_child[1] != -1) close(pc->parent_to_child[1]);
-    if (pc->child_to_parent[0] != -1) close(pc->child_to_parent[0]);
-    if (pc->child_to_parent[1] != -1) close(pc->child_to_parent[1]);
+    int status;
+    pid_t result = waitpid(pc->child_pid, &status, 0);
+    if (result != pc->child_pid) {
+        pc_set_error(pc, "waitpid failed");
+        return -1;
+    }
+    
+    if (exit_status) {
+        *exit_status = status;
+    }
+    
+    return PC_SUCCESS;
 }
 
 /* Internal helper functions */
 
-static pc_result_t pc_set_error(ProcessCoordinator *pc, pc_result_t error, const char *msg) {
-    if (!pc) return error;
+static int pc_set_error(ProcessCoordinator *pc, const char *msg) {
+    if (!pc || !msg) return -1;
     
-    pc->last_error = error;
-    pc->state = PC_STATE_ERROR;
-    
-    if (msg) {
-        snprintf(pc->error_msg, sizeof(pc->error_msg), "%s", msg);
+    snprintf(pc->error_msg, sizeof(pc->error_msg), "%s", msg);
+    return -1;
+}
+
+static void pc_close_pipe_safe(int *fd) {
+    if (fd && *fd != -1) {
+        close(*fd);
+        *fd = -1;
     }
-    
-    return error;
 }
 
-static pc_result_t pc_validate_state(ProcessCoordinator *pc, pc_state_t expected_state) {
-    if (!pc) return PC_ERROR_INVALID_STATE;
-    
-    if (pc->state != expected_state) {
-        return pc_set_error(pc, PC_ERROR_INVALID_STATE, "ProcessCoordinator in invalid state");
-    }
-    
-    return PC_SUCCESS;
-}
-
-static pc_result_t pc_close_pipe_safe(int *pipe_fd) {
-    if (!pipe_fd || *pipe_fd == -1) return PC_SUCCESS;
-    
-    close(*pipe_fd);
-    *pipe_fd = -1;
-    
-    return PC_SUCCESS;
-}
-
-static pc_result_t pc_wait_for_data(int fd, int timeout_ms) {
-    if (fd == -1) return PC_ERROR_INVALID_STATE;
+static int pc_wait_for_data(int fd, int timeout_ms) {
+    if (fd == -1) return -1;
     
     fd_set readfds;
     struct timeval timeout;
@@ -405,10 +300,10 @@ static pc_result_t pc_wait_for_data(int fd, int timeout_ms) {
     int result = select(fd + 1, &readfds, NULL, NULL, timeout_ms > 0 ? &timeout : NULL);
     
     if (result == 0) {
-        return PC_ERROR_TIMEOUT;
+        return -1; /* Timeout */
     } else if (result < 0) {
-        return PC_ERROR_IO_FAILED;
+        return -1; /* Error */
     }
     
-    return PC_SUCCESS;
+    return 0; /* Data available */
 }
