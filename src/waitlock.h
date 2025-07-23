@@ -35,6 +35,12 @@
   typedef unsigned char uint8_t;
 #endif
 
+#ifdef HAVE_STDBOOL_H
+  #include <stdbool.h>
+#else
+  typedef int bool;
+#endif
+
 #ifdef HAVE_FLOCK
   #include <sys/file.h>
 #else
@@ -87,7 +93,6 @@
 #define TIMEOUT_FACTOR      0.9     /* Factor for timeout calculation */
 
 /* Boolean type for C89 */
-typedef int bool;
 #define TRUE 1
 #define FALSE 0
 

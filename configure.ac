@@ -12,7 +12,7 @@ fi
 # Check for standard headers
 AC_CHECK_HEADERS([sys/file.h sys/select.h syslog.h stdint.h])
 AC_CHECK_HEADERS([sys/types.h sys/stat.h sys/wait.h sys/time.h])
-AC_CHECK_HEADERS([sys/sysctl.h sys/user.h])
+AC_CHECK_HEADERS([sys/sysctl.h sys/user.h stdbool.h])
 AC_CHECK_HEADERS([signal.h pwd.h dirent.h limits.h ctype.h])
 AC_CHECK_HEADERS([string.h unistd.h fcntl.h errno.h time.h])
 

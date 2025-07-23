@@ -57,8 +57,8 @@ CHECKSUM_SRCS = checksum/checksum.c
 CHECKSUM_OBJS = $(OBJDIR)/checksum.o
 
 # Test module
-TEST_SRCS = test/test.c test/unit_tests.c
-TEST_OBJS = $(OBJDIR)/test.o $(OBJDIR)/unit_tests.o
+TEST_SRCS = $(wildcard test/*.c)
+TEST_OBJS = $(patsubst test/%.c,$(OBJDIR)/%.o, $(TEST_SRCS))
 
 TEST_CHECKSUM_SRCS = test/test_checksum.c
 TEST_CHECKSUM_OBJS = $(OBJDIR)/test_checksum.o
@@ -102,40 +102,36 @@ TARGET = $(BINDIR)/waitlock
 all: $(TARGET)
 
 $(TARGET): $(ALL_OBJS)
-	mkdir -p $(BINDIR)
+	@mkdir -p $(BINDIR)
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 # Object file rules
 $(OBJDIR)/waitlock.o: waitlock.c waitlock.h
-	mkdir -p $(OBJDIR)
+	@mkdir -p $(OBJDIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(OBJDIR)/core.o: core/core.c waitlock.h
-	mkdir -p $(OBJDIR)
+	@mkdir -p $(OBJDIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(OBJDIR)/lock.o: lock/lock.c waitlock.h
-	mkdir -p $(OBJDIR)
+	@mkdir -p $(OBJDIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(OBJDIR)/process.o: process/process.c waitlock.h
-	mkdir -p $(OBJDIR)
+	@mkdir -p $(OBJDIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(OBJDIR)/signal.o: signal/signal.c waitlock.h
-	mkdir -p $(OBJDIR)
+	@mkdir -p $(OBJDIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(OBJDIR)/checksum.o: checksum/checksum.c waitlock.h
-	mkdir -p $(OBJDIR)
+	@mkdir -p $(OBJDIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-$(OBJDIR)/test.o: test/test.c waitlock.h
-	mkdir -p $(OBJDIR)
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-$(OBJDIR)/unit_tests.o: test/unit_tests.c waitlock.h
-	mkdir -p $(OBJDIR)
+$(OBJDIR)/%.o: test/%.c waitlock.h
+	@mkdir -p $(OBJDIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(OBJDIR)/pipe_coordinator.o: pipe_coordinator/pipe_coordinator.c pipe_coordinator/pipe_coordinator.h
