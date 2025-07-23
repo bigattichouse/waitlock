@@ -56,7 +56,7 @@ int parse_syslog_facility(const char *facility_name) {
 
 /* Portable string functions */
 #ifndef HAVE_SNPRINTF
-static int vsnprintf(char *str, size_t size, const char *format, va_list args) {
+static int custom_vsnprintf(char *str, size_t size, const char *format, va_list args) {
     int ret = vsprintf(str, format, args);
     if (ret >= (int)size) {
         str[size - 1] = '\0';
@@ -70,7 +70,7 @@ static int snprintf_impl(char *str, size_t size, const char *format, ...) {
     int ret;
     
     va_start(args, format);
-    ret = vsnprintf(str, size, format, args);
+    ret = custom_vsnprintf(str, size, format, args);
     va_end(args);
     
     return ret;

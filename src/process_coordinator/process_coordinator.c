@@ -146,8 +146,11 @@ pc_result_t pc_parent_receive(ProcessCoordinator *pc, void *data, size_t len, in
     }
     
     ssize_t bytes_read = read(pc->child_to_parent[0], data, len);
-    if (bytes_read != (ssize_t)len) {
+    if (bytes_read <= 0) {
         return pc_set_error(pc, PC_ERROR_IO_FAILED, "Failed to read from child");
+    }
+    if ((size_t)bytes_read < len) {
+        ((char*)data)[bytes_read] = '\0';
     }
     
     return PC_SUCCESS;
@@ -192,8 +195,11 @@ pc_result_t pc_child_receive(ProcessCoordinator *pc, void *data, size_t len, int
     }
     
     ssize_t bytes_read = read(pc->parent_to_child[0], data, len);
-    if (bytes_read != (ssize_t)len) {
+    if (bytes_read <= 0) {
         return pc_set_error(pc, PC_ERROR_IO_FAILED, "Failed to read from parent");
+    }
+    if ((size_t)bytes_read < len) {
+        ((char*)data)[bytes_read] = '\0';
     }
     
     return PC_SUCCESS;
