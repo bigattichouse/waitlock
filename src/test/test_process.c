@@ -156,6 +156,11 @@ int test_exec_with_lock_contention(void) {
     
     const char *test_descriptor = "test_exec_contention";
     
+    /* Save original options and configure for test */
+    struct options saved_opts = opts;
+    opts.max_holders = 1;  /* Mutex behavior - only one holder */
+    opts.timeout = 5.0;    /* 5 second timeout - should be enough for sleep 2 + delay */
+    
     /* Create first child that holds lock for a while */
     pid_t child1_pid = fork();
     if (child1_pid == 0) {
@@ -189,6 +194,9 @@ int test_exec_with_lock_contention(void) {
             }
         }
     }
+    
+    /* Restore original options */
+    opts = saved_opts;
     
     return 0;
 }
