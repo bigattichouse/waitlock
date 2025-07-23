@@ -212,7 +212,7 @@ int test_end_to_end_semaphore(void) {
         printf("Parent: Waiting for status from child %d\n", i);
         /* Receive status from each child */
         pc_result_t recv_result = pc_parent_receive(pcs[i], child_status, sizeof(child_status) - 1, 10000);
-        if (recv_result == PC_SUCCESS) {
+        if (recv_result > 0) {
             child_status[sizeof(child_status) - 1] = '\0';
             printf("Parent: Received status from child %d: %s\n", i, child_status);
             if (strstr(child_status, "SUCCESS:") != NULL) {

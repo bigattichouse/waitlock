@@ -110,6 +110,9 @@ ssize_t pc_send(ProcessCoordinator *pc, const void *data, size_t len) {
         return -1;
     }
     
+    /* Ensure data is flushed to the pipe immediately */
+    fsync(write_fd);
+    
     return written;
 }
 
@@ -228,7 +231,7 @@ pc_result_t pc_parent_receive(ProcessCoordinator *pc, void *data, size_t len, in
     if (result > 0 && result < (ssize_t)len) {
         ((char*)data)[result] = '\0'; /* Null terminate if space allows */
     }
-    return result; /* Return actual bytes read */
+    return result; /* Return actual bytes read (positive) or -1 on error */
 }
 
 pc_result_t pc_child_send(ProcessCoordinator *pc, const void *data, size_t len) {
@@ -242,7 +245,7 @@ pc_result_t pc_child_receive(ProcessCoordinator *pc, void *data, size_t len, int
     if (result > 0 && result < (ssize_t)len) {
         ((char*)data)[result] = '\0'; /* Null terminate if space allows */
     }
-    return result; /* Return actual bytes read */
+    return result; /* Return actual bytes read (positive) or -1 on error */
 }
 
 pc_result_t pc_parent_wait_for_child_ready(ProcessCoordinator *pc, int timeout_ms) {
@@ -293,22 +296,26 @@ static int pc_wait_for_data(int fd, int timeout_ms) {
     
     fd_set readfds;
     struct timeval timeout;
+    int result;
     
-    FD_ZERO(&readfds);
-    FD_SET(fd, &readfds);
-    
-    if (timeout_ms > 0) {
-        timeout.tv_sec = timeout_ms / 1000;
-        timeout.tv_usec = (timeout_ms % 1000) * 1000;
-    }
-    
-    int result = select(fd + 1, &readfds, NULL, NULL, timeout_ms > 0 ? &timeout : NULL);
-    
-    if (result == 0) {
-        return -1; /* Timeout */
-    } else if (result < 0) {
-        return -1; /* Error */
-    }
+    do {
+        FD_ZERO(&readfds);
+        FD_SET(fd, &readfds);
+        
+        if (timeout_ms > 0) {
+            timeout.tv_sec = timeout_ms / 1000;
+            timeout.tv_usec = (timeout_ms % 1000) * 1000;
+        }
+        
+        result = select(fd + 1, &readfds, NULL, NULL, timeout_ms > 0 ? &timeout : NULL);
+        
+        if (result == 0) {
+            return -1; /* Timeout */
+        } else if (result < 0 && errno != EINTR) {
+            return -1; /* Error (but not interrupted) */
+        }
+        /* If EINTR, retry the select */
+    } while (result < 0 && errno == EINTR);
     
     return 0; /* Data available */
 }

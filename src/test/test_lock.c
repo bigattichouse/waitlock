@@ -183,7 +183,7 @@ int test_acquire_lock(void) {
         /* Wait for child result */
         char child_signal;
         pc_result = pc_parent_receive(pc, &child_signal, 1, 3000); /* 3 second timeout */
-        if (pc_result == PC_SUCCESS && child_signal == 'S') {
+        if (pc_result > 0 && child_signal == 'S') {
             TEST_ASSERT(1, "Should be able to acquire second semaphore slot");
             
             /* Wait for child to complete */
@@ -379,7 +379,7 @@ int test_done_lock(void) {
         char child_signal;
         pc_result = pc_parent_receive(pc, &child_signal, 1, 3000); /* 3 second timeout */
         
-        if (pc_result == PC_SUCCESS && child_signal == 'S') {
+        if (pc_result > 0 && child_signal == 'S') {
             TEST_ASSERT(1, "Child successfully acquired lock");
             
             /* Give child time to fully initialize */
@@ -771,7 +771,7 @@ int test_semaphore_slots(void) {
         printf("Parent: Waiting for status from child %d\n", i);
         /* Receive status from each child */
         pc_result_t recv_result = pc_parent_receive(pcs[i], child_status, sizeof(child_status) - 1, 10000);
-        if (recv_result == PC_SUCCESS) {
+        if (recv_result > 0) {
             child_status[sizeof(child_status) - 1] = '\0';
             printf("Parent: Received status from child %d: %s\n", i, child_status);
             if (strstr(child_status, "SUCCESS:") != NULL) {

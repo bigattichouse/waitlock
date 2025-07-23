@@ -193,7 +193,15 @@ int test_pc_timeout_handling(void) {
     if (prep_result != PC_SUCCESS) { pc_destroy(pc); return 1; }
 
     pid_t child_pid = fork();
-    if (child_pid == 0) { // Child process        pc_result_t child_setup_result = pc_after_fork_child(pc);        if (child_setup_result != PC_SUCCESS) {            fprintf(stderr, "Child setup failed: %s\n", pc_get_error_string(pc));            exit(1);        }        // Child does not send anything, so parent will timeout        sleep(10); // Ensure child lives longer than parent's timeout        exit(0);
+    if (child_pid == 0) { // Child process
+        pc_result_t child_setup_result = pc_after_fork_child(pc);
+        if (child_setup_result != PC_SUCCESS) {
+            fprintf(stderr, "Child setup failed: %s\n", pc_get_error_string(pc));
+            exit(1);
+        }
+        // Child does not send anything, so parent will timeout
+        sleep(10); // Ensure child lives longer than parent's timeout
+        exit(0);
     } else if (child_pid > 0) { // Parent process
         pc_result_t parent_setup_result = pc_after_fork_parent(pc, child_pid);
         TEST_ASSERT(parent_setup_result == PC_SUCCESS, "Should set up parent successfully");

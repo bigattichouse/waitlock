@@ -134,7 +134,7 @@ int test_semaphore_slots(void) {
         
         /* Receive status from each child */
         pc_result_t recv_result = pc_parent_receive(pcs[i], child_status, sizeof(child_status) - 1, 10000);
-        if (recv_result == PC_SUCCESS) {
+        if (recv_result > 0) {
             child_status[sizeof(child_status) - 1] = '\0';
             if (strstr(child_status, "SUCCESS:") != NULL) {
                 successful_acquisitions++;
@@ -292,7 +292,7 @@ int test_end_to_end_semaphore(void) {
         
         /* Receive status from each child */
         pc_result_t recv_result = pc_parent_receive(pcs[i], child_status, sizeof(child_status) - 1, 10000);
-        if (recv_result == PC_SUCCESS) {
+        if (recv_result > 0) {
             child_status[sizeof(child_status) - 1] = '\0';
             if (strstr(child_status, "SUCCESS:") != NULL) {
                 successful_child_acquisitions++;
