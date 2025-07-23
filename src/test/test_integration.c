@@ -10,7 +10,7 @@
 #include "../process/process.h"
 #include "../signal/signal.h"
 #include "../checksum/checksum.h"
-#include "../pipe_coordinator/pipe_coordinator.h"
+#include "../process_coordinator/process_coordinator.h"
 
 /* Test framework */
 static int test_count = 0;
@@ -178,9 +178,11 @@ int test_end_to_end_done(void) {
     pid_t child_pid = fork();
     if (child_pid == 0) {
         /* Child process */
+        install_signal_handlers(); /* Install signal handlers to respond to done_lock */
+        
         opts.descriptor = test_descriptor;
         opts.max_holders = 1;
-        opts.timeout = 0.0;
+        opts.timeout = 5.0;
         
         int acquire_result = acquire_lock(opts.descriptor, opts.max_holders, opts.timeout);
         if (acquire_result == 0) {
@@ -277,7 +279,7 @@ int test_end_to_end_timeout(void) {
         /* Child process */
         opts.descriptor = test_descriptor;
         opts.max_holders = 1;
-        opts.timeout = 0.0;
+        opts.timeout = 5.0;
         
         int acquire_result = acquire_lock(opts.descriptor, opts.max_holders, opts.timeout);
         if (acquire_result == 0) {
@@ -345,7 +347,7 @@ int test_end_to_end_check(void) {
         /* Child process */
         opts.descriptor = test_descriptor;
         opts.max_holders = 1;
-        opts.timeout = 0.0;
+        opts.timeout = 5.0;
         opts.check_only = FALSE;
         
         int acquire_result = acquire_lock(opts.descriptor, opts.max_holders, opts.timeout);
@@ -408,7 +410,7 @@ int test_end_to_end_list(void) {
         /* Child process */
         opts.descriptor = test_descriptor;
         opts.max_holders = 1;
-        opts.timeout = 0.0;
+        opts.timeout = 5.0;
         opts.list_mode = FALSE;
         
         int acquire_result = acquire_lock(opts.descriptor, opts.max_holders, opts.timeout);
@@ -467,9 +469,14 @@ int test_signal_handling_integration(void) {
     
     const char *test_descriptor = "test_signal_integration";
     
-    /* Create pipe for parent-child coordination */
-    PipeCoordinator *pc = pipe_coordinator_create();
+    /* Create ProcessCoordinator for parent-child coordination */
+    ProcessCoordinator *pc = pc_create();
     if (pc == NULL) {
+        return 1;
+    }
+    
+    if (pc_prepare_fork(pc) != PC_SUCCESS) {
+        pc_destroy(pc);
         return 1;
     }
     
@@ -477,7 +484,7 @@ int test_signal_handling_integration(void) {
     pid_t child_pid = fork();
     if (child_pid == 0) {
         /* Child process */
-        pipe_coordinator_close_read_end(pc); /* Close read end */
+        pc_after_fork_child(pc);
         
         install_signal_handlers();
         
@@ -489,8 +496,7 @@ int test_signal_handling_integration(void) {
         if (acquire_result == 0) {
             /* Signal parent that lock is acquired */
             char signal_char = 'S';
-            pipe_coordinator_write(pc, &signal_char, 1);
-            pipe_coordinator_close_write_end(pc);
+            pc_child_send(pc, &signal_char, 1);
             
             /* Wait for signal */
             while (1) {
@@ -499,22 +505,19 @@ int test_signal_handling_integration(void) {
         } else {
             /* Signal parent that lock acquisition failed */
             char signal_char = 'F';
-            pipe_coordinator_write(pc, &signal_char, 1);
-            pipe_coordinator_close_write_end(pc);
+            pc_child_send(pc, &signal_char, 1);
         }
-        pipe_coordinator_destroy(pc);
+        pc_destroy(pc);
         exit(acquire_result == 0 ? 0 : 1);
     } else if (child_pid > 0) {
         /* Parent process */
-        pipe_coordinator_set_child_pid(pc, child_pid);
-        pipe_coordinator_close_write_end(pc); /* Close write end */
+        pc_after_fork_parent(pc, child_pid);
         
         /* Wait for child to acquire lock */
         char child_signal;
-        ssize_t bytes_read = pipe_coordinator_read(pc, &child_signal, 1);
-        pipe_coordinator_close_read_end(pc);
+        pc_result_t result = pc_parent_receive(pc, &child_signal, 1, 5000); /* 5 second timeout */
         
-        if (bytes_read == 1 && child_signal == 'S') {
+        if (result == PC_SUCCESS && child_signal == 'S') {
             /* Test 2: Verify lock is held */
             int check_result = check_lock(test_descriptor);
             TEST_ASSERT(check_result != 0, "Lock should be held by child");
@@ -524,7 +527,7 @@ int test_signal_handling_integration(void) {
             
             /* Test 4: Wait for child to exit */
             int status;
-            pipe_coordinator_wait_for_child(pc, &status);
+            pc_parent_wait_for_child_exit(pc, &status);
             
             if (WIFSIGNALED(status)) {
                 TEST_ASSERT(WTERMSIG(status) == SIGTERM, "Child should be terminated by SIGTERM");
@@ -538,9 +541,9 @@ int test_signal_handling_integration(void) {
             TEST_ASSERT(0, "Child failed to acquire lock or communication failed");
             kill(child_pid, SIGTERM);
             int status;
-            pipe_coordinator_wait_for_child(pc, &status);
+            pc_parent_wait_for_child_exit(pc, &status);
         }
-        pipe_coordinator_destroy(pc);
+        pc_destroy(pc);
     }
     
     /* Restore options */
@@ -558,9 +561,14 @@ int test_stale_lock_cleanup_integration(void) {
     
     const char *test_descriptor = "test_stale_cleanup";
     
-    /* Create pipe for parent-child coordination */
-    int sync_pipe[2];
-    if (pipe(sync_pipe) != 0) {
+    /* Create ProcessCoordinator for parent-child coordination */
+    ProcessCoordinator *pc = pc_create();
+    if (pc == NULL) {
+        return 1;
+    }
+    
+    if (pc_prepare_fork(pc) != PC_SUCCESS) {
+        pc_destroy(pc);
         return 1;
     }
     
@@ -568,37 +576,36 @@ int test_stale_lock_cleanup_integration(void) {
     pid_t child_pid = fork();
     if (child_pid == 0) {
         /* Child process */
-        close(sync_pipe[0]); /* Close read end */
+        pc_after_fork_child(pc);
         
         opts.descriptor = test_descriptor;
         opts.max_holders = 1;
-        opts.timeout = 0.0;
+        opts.timeout = 5.0;
         
         int acquire_result = acquire_lock(opts.descriptor, opts.max_holders, opts.timeout);
         if (acquire_result == 0) {
             /* Signal parent that lock is acquired */
             char signal = 1;
-            ssize_t bytes_written = write(sync_pipe[1], &signal, 1);
-            (void)bytes_written; /* Suppress unused variable warning */
-            close(sync_pipe[1]);
+            pc_child_send(pc, &signal, 1);
             
             /* Exit without calling release_lock() */
+            pc_destroy(pc);
             _exit(0);
         }
+        pc_destroy(pc);
         _exit(1);
     } else if (child_pid > 0) {
         /* Parent process */
-        close(sync_pipe[1]); /* Close write end */
+        pc_after_fork_parent(pc, child_pid);
         
         /* Wait for child to acquire lock */
         char parent_signal;
-        ssize_t bytes_read = read(sync_pipe[0], &parent_signal, 1);
-        (void)bytes_read; /* Suppress unused variable warning */
-        close(sync_pipe[0]);
+        pc_result_t result = pc_parent_receive(pc, &parent_signal, 1, 5000); /* 5 second timeout */
+        (void)result; /* Suppress unused variable warning */
         
         /* Test 2: Wait for child to die */
         int status;
-        waitpid(child_pid, &status, 0);
+        pc_parent_wait_for_child_exit(pc, &status);
         
         if (WIFEXITED(status)) {
             TEST_ASSERT(WEXITSTATUS(status) == 0, "Child should exit successfully");
@@ -617,6 +624,8 @@ int test_stale_lock_cleanup_integration(void) {
         if (acquire_result == 0) {
             release_lock();
         }
+        
+        pc_destroy(pc);
     }
     
     /* Restore options */
