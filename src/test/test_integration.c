@@ -100,38 +100,126 @@ int test_end_to_end_semaphore(void) {
     opts.check_only = FALSE;
     opts.list_mode = FALSE;
     opts.done_mode = FALSE;
-    opts.exec_argv = FALSE;
+    opts.exec_argv = NULL;
     
     /* Test 1: Acquire first semaphore slot */
     int acquire_result1 = acquire_lock(opts.descriptor, opts.max_holders, opts.timeout);
     TEST_ASSERT(acquire_result1 == 0, "Should successfully acquire first semaphore slot");
     
-    /* Test 2: Acquire second and third slots from child processes */
+    /* Test 2: Use separate ProcessCoordinators for race-free coordination of remaining slots */
+    ProcessCoordinator *pcs[2];
     pid_t child_pids[2];
     int i;
     
+    /* Initialize ProcessCoordinators */
     for (i = 0; i < 2; i++) {
-        child_pids[i] = fork();
-        if (child_pids[i] == 0) {
-            /* Child process */
-            int child_result = acquire_lock(opts.descriptor, opts.max_holders, 2.0);
-            if (child_result == 0) {
-                /* Hold the slot for a bit */
-                sleep(1);
-                release_lock();
-                exit(0);
+        pcs[i] = pc_create();
+        if (!pcs[i]) {
+            release_lock();
+            /* Cleanup previous coordinators */
+            for (int j = 0; j < i; j++) {
+                pc_destroy(pcs[j]);
             }
-            exit(1);
+            opts = saved_opts;
+            TEST_ASSERT(0, "Cannot create ProcessCoordinator");
+            return 1;
         }
     }
     
-    /* Test 3: Try to acquire fourth slot (should fail) */
-    sleep(1); /* Give children time to acquire slots */
+    /* Acquire second and third slots from child processes with ProcessCoordinator */
+    for (i = 0; i < 2; i++) {
+        pc_result_t prep_result = pc_prepare_fork(pcs[i]);
+        if (prep_result != PC_SUCCESS) {
+            release_lock();
+            /* Cleanup all coordinators */
+            for (int j = 0; j < 2; j++) {
+                pc_destroy(pcs[j]);
+            }
+            opts = saved_opts;
+            TEST_ASSERT(0, "ProcessCoordinator prepare_fork failed");
+            return 1;
+        }
+        
+        child_pids[i] = fork();
+        if (child_pids[i] == 0) {
+            /* Child process */
+            pc_result_t child_result = pc_after_fork_child(pcs[i]);
+            if (child_result != PC_SUCCESS) {
+                printf("Child: ProcessCoordinator setup failed: %s\n", pc_get_error_string(pcs[i]));
+                pc_destroy(pcs[i]);
+                exit(1);
+            }
+            
+            int acquire_result = acquire_lock(opts.descriptor, opts.max_holders, 2.0);
+            
+            /* Signal parent about result using ProcessCoordinator */
+            char status_msg[32];
+            snprintf(status_msg, sizeof(status_msg), "%s:%d", 
+                     (acquire_result == 0) ? "SUCCESS" : "FAILED", acquire_result);
+            
+            pc_result_t send_result = pc_child_send(pcs[i], status_msg, strlen(status_msg));
+            if (send_result != PC_SUCCESS) {
+                printf("Child: Failed to send status: %s\n", pc_get_error_string(pcs[i]));
+            }
+            
+            if (acquire_result == 0) {
+                /* Hold the slot for parent to test 4th slot */
+                sleep(3);
+                release_lock();
+                exit(0);
+            }
+            
+            pc_destroy(pcs[i]);
+            exit(1);
+        } else if (child_pids[i] < 0) {
+            release_lock();
+            /* Cleanup all coordinators */
+            for (int j = 0; j < 2; j++) {
+                pc_destroy(pcs[j]);
+            }
+            opts = saved_opts;
+            TEST_ASSERT(0, "Failed to fork child process");
+            return 1;
+        }
+        
+        /* Parent: complete fork coordination */
+        pc_result_t parent_result = pc_after_fork_parent(pcs[i], child_pids[i]);
+        if (parent_result != PC_SUCCESS) {
+            release_lock();
+            /* Cleanup all coordinators */
+            for (int j = 0; j < 2; j++) {
+                pc_destroy(pcs[j]);
+            }
+            opts = saved_opts;
+            TEST_ASSERT(0, "ProcessCoordinator after_fork_parent failed");
+            return 1;
+        }
+    }
+    
+    /* Wait for all children to acquire their slots using ProcessCoordinator */
+    int successful_child_acquisitions = 0;
+    for (i = 0; i < 2; i++) {
+        char child_status[32];
+        
+        /* Receive status from each child */
+        pc_result_t recv_result = pc_parent_receive(pcs[i], child_status, sizeof(child_status) - 1, 5000);
+        if (recv_result == PC_SUCCESS) {
+            child_status[sizeof(child_status) - 1] = '\0';
+            if (strstr(child_status, "SUCCESS:") != NULL) {
+                successful_child_acquisitions++;
+            }
+        }
+    }
+    
+    TEST_ASSERT(successful_child_acquisitions == 2, "Both children should acquire slots");
+    
+    /* Test 3: Try to acquire fourth slot (should fail) - give children time to establish */
+    sleep(1);
     
     pid_t fourth_child = fork();
     if (fourth_child == 0) {
-        /* Child process */
-        int child_result = acquire_lock(opts.descriptor, opts.max_holders, 1.0);
+        /* Child process - try to get 4th slot with longer timeout */
+        int child_result = acquire_lock(opts.descriptor, opts.max_holders, 2.0);
         exit(child_result == 0 ? 0 : 1);
     } else if (fourth_child > 0) {
         /* Parent process */
@@ -159,7 +247,10 @@ int test_end_to_end_semaphore(void) {
     int check_result = check_lock(opts.descriptor);
     TEST_ASSERT(check_result == 0, "All semaphore slots should be available");
     
-    /* Restore options */
+    /* Cleanup all ProcessCoordinators */
+    for (i = 0; i < 2; i++) {
+        pc_destroy(pcs[i]);
+    }
     opts = saved_opts;
     
     return 0;
