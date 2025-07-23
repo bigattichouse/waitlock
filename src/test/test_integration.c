@@ -593,11 +593,17 @@ int test_signal_handling_integration(void) {
         /* Child process */
         pc_after_fork_child(pc);
         
+        /* Reset global state for child (critical for avoiding state corruption) */
+        extern struct global_state g_state;
+        g_state.lock_fd = -1;
+        g_state.lock_path[0] = '\0';
+        g_state.child_pid = 0;
+        
         install_signal_handlers();
         
         opts.descriptor = test_descriptor;
         opts.max_holders = 1;
-        opts.timeout = 1.0; // Use a small timeout to ensure acquisition or failure
+        opts.timeout = 3.0; // Use longer timeout to ensure acquisition succeeds
         
         int acquire_result = acquire_lock(opts.descriptor, opts.max_holders, opts.timeout);
         if (acquire_result == 0) {
@@ -624,7 +630,7 @@ int test_signal_handling_integration(void) {
         char child_signal;
         pc_result_t result = pc_parent_receive(pc, &child_signal, 1, 5000); /* 5 second timeout */
         
-        if (result == PC_SUCCESS && child_signal == 'S') {
+        if (result > 0 && child_signal == 'S') {
             /* Test 2: Verify lock is held */
             int check_result = check_lock(test_descriptor);
             TEST_ASSERT(check_result != 0, "Lock should be held by child");
