@@ -735,7 +735,7 @@ int test_semaphore_slots(void) {
             
             if (acquire_result == 0) {
                 /* Hold the lock for parent to test 4th slot */
-                sleep(5); /* Hold lock for 5 seconds to ensure parent tests during hold period */
+                sleep(10); /* Hold lock for 10 seconds to ensure parent tests during hold period */
                 release_lock();
             }
             
@@ -790,10 +790,10 @@ int test_semaphore_slots(void) {
     
     /* 
      * Give children extra time to fully establish their locks.
-     * Children sleep for 3 seconds after sending status, so we need to test
-     * the 4th slot during that hold period, not after they've sent status.
+     * Children sleep for 10 seconds after sending status. Test 4th slot
+     * early in their hold period to ensure all slots are definitely occupied.
      */
-    sleep(2); /* Wait 2 seconds into their 3-second hold period */
+    sleep(1); /* Wait 1 second - well within their 10-second hold period */
     
     /* Test that all slots are occupied - try to acquire one more with longer timeout */
     int fourth_result = acquire_lock(test_descriptor, max_holders, 2.0);
