@@ -3,6 +3,7 @@
  */
 
 #include "test_framework.h"
+#include "../lock/lock.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,17 +15,15 @@
 
 /* Clean up any leftover test artifacts from previous runs */
 void test_cleanup_global(void) {
-    char cmd[256];
+    char cmd[PATH_MAX + 50];
     int result;
-    
-    /* Simple cleanup - just remove test lock files from most common locations */
-    snprintf(cmd, sizeof(cmd), "rm -f /tmp/waitlock/test_*.lock 2>/dev/null || true");
-    result = system(cmd);
-    (void)result; /* Suppress unused variable warning */
-    
-    snprintf(cmd, sizeof(cmd), "rm -f /var/lock/waitlock/test_*.lock 2>/dev/null || true");
-    result = system(cmd);
-    (void)result; /* Suppress unused variable warning */
+    char *lock_dir = find_lock_directory();
+
+    if (lock_dir) {
+        snprintf(cmd, sizeof(cmd), "rm -f %s/test_*.lock 2>/dev/null || true", lock_dir);
+        result = system(cmd);
+        (void)result; /* Suppress unused variable warning */
+    }
     
     /* Small delay to ensure cleanup completes */
     usleep(200000); /* 200ms */
@@ -32,13 +31,15 @@ void test_cleanup_global(void) {
 
 /* Lightweight cleanup between test suites */
 void test_cleanup_between_suites(void) {
-    char cmd[256];
+    char cmd[PATH_MAX + 50];
     int result;
-    
-    /* Simple cleanup - just remove test lock files */
-    snprintf(cmd, sizeof(cmd), "rm -f /tmp/waitlock/test_*.lock 2>/dev/null || true");
-    result = system(cmd);
-    (void)result; /* Suppress unused variable warning */
+    char *lock_dir = find_lock_directory();
+
+    if (lock_dir) {
+        snprintf(cmd, sizeof(cmd), "rm -f %s/test_*.lock 2>/dev/null || true", lock_dir);
+        result = system(cmd);
+        (void)result; /* Suppress unused variable warning */
+    }
     
     /* Brief pause to let filesystem catch up */
     usleep(100000); /* 100ms */

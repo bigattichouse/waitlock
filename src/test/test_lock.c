@@ -685,6 +685,7 @@ int test_semaphore_slots(void) {
     
     /* Create multiple child processes to test slot allocation */
     for (i = 0; i < max_holders; i++) {
+        printf("Parent: Before pc_prepare_fork for child %d\n", i);
         pc_result_t prep_result = pc_prepare_fork(pcs[i]);
         if (prep_result != PC_SUCCESS) {
             printf("  ✗ FAIL: ProcessCoordinator prepare_fork failed: %s\n", pc_get_error_string(pcs[i]));
@@ -699,9 +700,10 @@ int test_semaphore_slots(void) {
         child_pids[i] = fork();
         if (child_pids[i] == 0) {
             /* Child process - acquire semaphore slot */
+            printf("Child %d: After fork, before pc_after_fork_child\n", i);
             pc_result_t child_result = pc_after_fork_child(pcs[i]);
             if (child_result != PC_SUCCESS) {
-                printf("Child: ProcessCoordinator setup failed: %s\n", pc_get_error_string(pcs[i]));
+                printf("Child %d: ProcessCoordinator setup failed: %s\n", i, pc_get_error_string(pcs[i]));
                 pc_destroy(pcs[i]);
                 exit(1);
             }
@@ -711,17 +713,24 @@ int test_semaphore_slots(void) {
             g_state.lock_fd = -1;
             g_state.lock_path[0] = '\0';
             g_state.child_pid = 0;
+
+            // Debug prints for opts and g_state in child
+            printf("Child %d: opts.descriptor = %s, opts.max_holders = %d\n", i, opts.descriptor, opts.max_holders);
+            printf("Child %d: g_state.lock_path = %s\n", i, g_state.lock_path);
             
+            printf("Child %d: Attempting to acquire lock\n", i);
             int acquire_result = acquire_lock(test_descriptor, max_holders, 2.0);
+            printf("Child %d: Lock acquisition result: %d\n", i, acquire_result);
             
             /* Signal parent about result using ProcessCoordinator */
             char status_msg[64];
             snprintf(status_msg, sizeof(status_msg), "%s:%d", 
                      (acquire_result == 0) ? "SUCCESS" : "FAILED", acquire_result);
+            printf("Child %d: Sending status to parent: %s\n", i, status_msg);
             
             pc_result_t send_result = pc_child_send(pcs[i], status_msg, strlen(status_msg));
             if (send_result != PC_SUCCESS) {
-                printf("Child: Failed to send status: %s\n", pc_get_error_string(pcs[i]));
+                printf("Child %d: Failed to send status: %s\n", i, pc_get_error_string(pcs[i]));
             }
             
             if (acquire_result == 0) {
@@ -742,6 +751,7 @@ int test_semaphore_slots(void) {
         }
         
         /* Parent: complete fork coordination */
+        printf("Parent: After fork, before pc_after_fork_parent for child %d\n", i);
         pc_result_t parent_result = pc_after_fork_parent(pcs[i], child_pids[i]);
         if (parent_result != PC_SUCCESS) {
             printf("  ✗ FAIL: ProcessCoordinator after_fork_parent failed: %s\n", pc_get_error_string(pcs[i]));
@@ -758,18 +768,23 @@ int test_semaphore_slots(void) {
     int successful_acquisitions = 0;
     for (i = 0; i < max_holders; i++) {
         char child_status[64];
-        
+        printf("Parent: Waiting for status from child %d\n", i);
         /* Receive status from each child */
         pc_result_t recv_result = pc_parent_receive(pcs[i], child_status, sizeof(child_status) - 1, 10000);
         if (recv_result == PC_SUCCESS) {
             child_status[sizeof(child_status) - 1] = '\0';
+            printf("Parent: Received status from child %d: %s\n", i, child_status);
             if (strstr(child_status, "SUCCESS:") != NULL) {
                 successful_acquisitions++;
             }
+        } else {
+            printf("Parent: Failed to receive status from child %d: %s\n", i, pc_get_error_string(pcs[i]));
         }
     }
     
     printf("  → Successful acquisitions: %d/%d\n", successful_acquisitions, max_holders);
+    fflush(stdout);
+    usleep(10000); /* 10ms delay */
     TEST_ASSERT(successful_acquisitions == max_holders, 
                 "All children should successfully acquire semaphore slots");
     

@@ -156,21 +156,24 @@ int test_end_to_end_semaphore(void) {
             g_state.lock_path[0] = '\0';
             g_state.child_pid = 0;
             
+            printf("Child %d: Attempting to acquire lock\n", i);
             int acquire_result = acquire_lock(opts.descriptor, opts.max_holders, 2.0);
+            printf("Child %d: Lock acquisition result: %d\n", i, acquire_result);
             
             /* Signal parent about result using ProcessCoordinator */
             char status_msg[32];
             snprintf(status_msg, sizeof(status_msg), "%s:%d", 
                      (acquire_result == 0) ? "SUCCESS" : "FAILED", acquire_result);
+            printf("Child %d: Sending status to parent: %s\n", i, status_msg);
             
             pc_result_t send_result = pc_child_send(pcs[i], status_msg, strlen(status_msg));
             if (send_result != PC_SUCCESS) {
-                printf("Child: Failed to send status: %s\n", pc_get_error_string(pcs[i]));
+                printf("Child %d: Failed to send status: %s\n", i, pc_get_error_string(pcs[i]));
             }
             
             if (acquire_result == 0) {
                 /* Hold the slot for parent to test 4th slot */
-                sleep(3);
+                sleep(5);
                 release_lock();
                 exit(0);
             }
@@ -206,14 +209,17 @@ int test_end_to_end_semaphore(void) {
     int successful_child_acquisitions = 0;
     for (i = 0; i < 2; i++) {
         char child_status[32];
-        
+        printf("Parent: Waiting for status from child %d\n", i);
         /* Receive status from each child */
         pc_result_t recv_result = pc_parent_receive(pcs[i], child_status, sizeof(child_status) - 1, 10000);
         if (recv_result == PC_SUCCESS) {
             child_status[sizeof(child_status) - 1] = '\0';
+            printf("Parent: Received status from child %d: %s\n", i, child_status);
             if (strstr(child_status, "SUCCESS:") != NULL) {
                 successful_child_acquisitions++;
             }
+        } else {
+            printf("Parent: Failed to receive status from child %d: %s\n", i, pc_get_error_string(pcs[i]));
         }
     }
     
@@ -225,14 +231,17 @@ int test_end_to_end_semaphore(void) {
     pid_t fourth_child = fork();
     if (fourth_child == 0) {
         /* Child process - try to get 4th slot with longer timeout */
-        int child_result = acquire_lock(opts.descriptor, opts.max_holders, 2.0);
+        int child_result = acquire_lock(opts.descriptor, opts.max_holders, 3.0);
         exit(child_result == 0 ? 0 : 1);
     } else if (fourth_child > 0) {
         /* Parent process */
         int status;
         waitpid(fourth_child, &status, 0);
         if (WIFEXITED(status)) {
+            printf("Parent: Fourth child exit status: %d\n", WEXITSTATUS(status));
             TEST_ASSERT(WEXITSTATUS(status) == 1, "Fourth slot should not be available");
+        } else {
+            printf("Parent: Fourth child did not exit normally.\n");
         }
     }
     

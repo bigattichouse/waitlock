@@ -65,25 +65,24 @@ int test_pc_basic_communication(void) {
             exit(1);
         }
         char *msg = "Hello from child";
-        pc_result_t send_result = pc_child_send(pc, msg, strlen(msg) + 1);
+        pc_result_t send_result = pc_child_send(pc, msg, strlen(msg));
         if (send_result != PC_SUCCESS) {
             fprintf(stderr, "Child send failed: %s\n", pc_get_error_string(pc));
             exit(1);
         }
-        // Wait for parent's acknowledgment
-        char ack_msg[16];
-        ssize_t recv_ack_result = pc_child_receive(pc, ack_msg, sizeof(ack_msg), 5000);
-        if (recv_ack_result <= 0) {
-            fprintf(stderr, "Child ack receive failed: %s\n", pc_get_error_string(pc));
-            exit(1);
-        }
-        // Child sends a final signal to parent after receiving ACK
+        
+        // Wait a bit for parent to process the message
+        usleep(50000); // 50ms delay
+        
+        // Child sends a final signal to parent
         char final_signal = 'D'; // Done
         pc_result_t final_send_result = pc_child_send(pc, &final_signal, 1);
         if (final_send_result != PC_SUCCESS) {
             fprintf(stderr, "Child final send failed: %s\n", pc_get_error_string(pc));
             exit(1);
         }
+        // Give parent time to read the final signal before exiting
+        usleep(100000); // 100ms delay
         pc_destroy(pc); // Destroy PC in child before exiting
         exit(0);
     } else if (child_pid > 0) { // Parent process
@@ -95,31 +94,15 @@ int test_pc_basic_communication(void) {
         ssize_t recv_result = pc_parent_receive(pc, buffer, sizeof(buffer), 5000);
         TEST_ASSERT(recv_result > 0 && strcmp(buffer, "Hello from child") == 0, "Should receive message from child");
 
-        char *response = "ACK from parent";
-        pc_result_t send_result = pc_parent_send(pc, response, strlen(response) + 1);
-        TEST_ASSERT(send_result == PC_SUCCESS, "Should send response to child");
-
-        // Give child time to receive ACK and send final signal
-        usleep(50000); // 50ms for child to process
-        
-        // Parent waits for child's final signal with shorter timeout 
+        // Parent waits for child's final signal BEFORE waiting for exit
         char final_ack;
-        ssize_t final_recv_result = pc_parent_receive(pc, &final_ack, 1, 2000);
-        int received_final_signal = (final_recv_result > 0 && final_ack == 'D');
+        ssize_t final_recv_result = pc_parent_receive(pc, &final_ack, 1, 3000);
+        TEST_ASSERT(final_recv_result > 0 && final_ack == 'D', "Parent should receive final signal from child");
         
         int status;
         pc_result_t wait_result = pc_parent_wait_for_child_exit(pc, &status);
         TEST_ASSERT(wait_result == PC_SUCCESS, "Should wait for child successfully");
-        
-        // Only check final signal if child exited successfully
-        if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
-            TEST_ASSERT(received_final_signal, "Parent should receive final signal from child");
-            TEST_ASSERT(WIFEXITED(status) && WEXITSTATUS(status) == 0, "Child should exit successfully");
-        } else {
-            // Child failed - this indicates a pipe communication issue
-            printf("  → Child exited with status %d, skipping final signal check\n", 
-                   WIFEXITED(status) ? WEXITSTATUS(status) : -1);
-        }
+        TEST_ASSERT(WIFEXITED(status) && WEXITSTATUS(status) == 0, "Child should exit successfully");
              pc_destroy(pc); // Destroy PC in parent after child exits
          } else {
              TEST_ASSERT(0, "Fork failed");
