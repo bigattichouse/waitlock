@@ -238,6 +238,7 @@ int test_end_to_end_exec(void) {
         /* Child process */
         opts.descriptor = test_descriptor;
         opts.max_holders = 1;
+        opts.timeout = 5.0; /* FIX: Set proper timeout before calling exec_with_lock */
         char *argv[] = {"echo", "Hello from exec", NULL};
         opts.exec_argv = argv;
         

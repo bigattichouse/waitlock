@@ -173,109 +173,67 @@ int acquire_lock(const char *descriptor, int max_holders, double timeout) {
             }
         }
         
-        /* Clean up stale locks first and count active locks */
-        debug("DEBUG: Opening lock directory...");
-        int active_locks = 0;
-        dir = opendir(lock_dir);
-        if (dir) {
-            while ((entry = readdir(dir)) != NULL) {
-                /* Check if this is a lock file for our descriptor */
-                size_t desc_len = strlen(descriptor);
-                debug("DEBUG: Checking entry: %s", entry->d_name);
-                if (strncmp(entry->d_name, descriptor, desc_len) == 0 &&
-                    (entry->d_name[desc_len] == '.' || entry->d_name[desc_len] == '\0') &&
-                    strstr(entry->d_name, ".lock")) {
-                    char check_path[PATH_MAX];
-                    struct lock_info check_info;
-                    bool is_stale = FALSE;
-                    
-                    debug("DEBUG: Found matching lock file: %s", entry->d_name);
-                    safe_snprintf(check_path, sizeof(check_path), "%s/%s", 
-                                  lock_dir, entry->d_name);
-                    
-                    debug("DEBUG: Reading lock file: %s", check_path);
-                    if (read_lock_file_any_format(check_path, &check_info) == 0) {
-                        debug("DEBUG: Lock file read successfully");
-                        if (check_info.magic == LOCK_MAGIC && validate_lock_checksum(&check_info)) {
-                            debug("DEBUG: Valid lock file, checking if process %d exists...", check_info.pid);
-                            if (!process_exists(check_info.pid)) {
-                                debug("DEBUG: Process %d does not exist - marking as stale", check_info.pid);
-                                is_stale = TRUE;
-                            } else {
-                                debug("DEBUG: Process %d exists - lock is active", check_info.pid);
-                                active_locks++;
-                            }
-                        } else if (check_info.magic == LOCK_MAGIC) {
-                            /* Corrupted lock file - treat as stale */
-                            debug("Corrupted lock file detected: %s", entry->d_name);
-                            is_stale = TRUE;
-                            
-                            /* Log corrupted lock detection to syslog */
-                            if (g_state.use_syslog) {
-#ifdef HAVE_SYSLOG_H
-                                openlog("waitlock", LOG_PID, g_state.syslog_facility);
-                                syslog(LOG_WARNING, "corrupted lock file detected: %s (invalid checksum)", 
-                                       entry->d_name);
-                                closelog();
-#endif
-                            }
-                        }
+        /* Clean up stale locks during slot attempt - no separate counting phase */
+        debug("DEBUG: Attempting atomic slot claiming (no pre-counting)...");
+        
+        /* Try to claim an available slot atomically */
+        int slot_claimed = -1;
+        int active_locks_found = 0; /* Count during slot attempts for debugging */
+        
+        /* Always try to claim a slot - let atomic operations determine availability */
+        int start_slot = (opts.preferred_slot >= 0 && opts.preferred_slot < max_holders) ? opts.preferred_slot : 0;
+        int slot_attempt, try_slot;
+        
+        debug("DEBUG: Starting slot claiming process...");
+        
+        /* Try each slot in sequence, starting with preferred slot */
+        for (slot_attempt = 0; slot_attempt < max_holders; slot_attempt++) {
+            try_slot = (start_slot + slot_attempt) % max_holders;
+            
+            debug("DEBUG: Trying slot %d (attempt %d)", try_slot, slot_attempt);
+            
+            /* First, check if this slot already exists and clean up if stale */
+            safe_snprintf(lock_path, sizeof(lock_path), "%s/%s.slot%d.lock",
+                          lock_dir, descriptor, try_slot);
+            
+            /* Check existing lock file for this slot */
+            struct lock_info existing_info;
+            bool slot_is_free = TRUE;
+            
+            if (read_lock_file_any_format(lock_path, &existing_info) == 0) {
+                debug("DEBUG: Found existing lock file for slot %d", try_slot);
+                if (existing_info.magic == LOCK_MAGIC && validate_lock_checksum(&existing_info)) {
+                    if (process_exists(existing_info.pid)) {
+                        debug("DEBUG: Slot %d is held by active process %d", try_slot, existing_info.pid);
+                        slot_is_free = FALSE;
+                        active_locks_found++;
                     } else {
-                        /* Cannot read lock file - treat as stale */
-                        is_stale = TRUE;
-                    }
-                    
-                    if (is_stale) {
-                        unlink(check_path);
-                        debug("Removed stale lock: %s", entry->d_name);
-                        
-                        /* Log stale lock cleanup to syslog */
+                        debug("DEBUG: Slot %d is stale (process %d dead), cleaning up", try_slot, existing_info.pid);
+                        unlink(lock_path);
+                        /* Log stale lock cleanup */
                         if (g_state.use_syslog) {
 #ifdef HAVE_SYSLOG_H
                             openlog("waitlock", LOG_PID, g_state.syslog_facility);
-                            syslog(LOG_INFO, "removed stale lock '%s' (pid %d no longer exists)", 
-                                   entry->d_name, (int)check_info.pid);
+                            syslog(LOG_INFO, "removed stale lock slot %d (pid %d no longer exists)", 
+                                   try_slot, existing_info.pid);
                             closelog();
 #endif
                         }
                     }
+                } else {
+                    debug("DEBUG: Slot %d has corrupted lock file, cleaning up", try_slot);
+                    unlink(lock_path);
                 }
+            } else {
+                debug("DEBUG: Slot %d is free (no existing lock file)", try_slot);
             }
-            closedir(dir);
-        }
-        
-        debug("DEBUG: Found %d active locks, max_holders=%d", active_locks, max_holders);
-        
-        /* Check if all slots are occupied */
-        if (active_locks >= max_holders) {
-            debug("DEBUG: All slots occupied (%d/%d), checking timeout...", active_locks, max_holders);
-            /* No available slots - continue to timeout check */
-        } else {
-            debug("DEBUG: Slots available (%d/%d), attempting to claim slot...", active_locks, max_holders);
-        }
-        
-        /* Try to claim an available slot atomically */
-        int slot_claimed = -1;
-        
-        /* Only try to claim a slot if slots are available */
-        if (active_locks < max_holders) {
-            int start_slot = (opts.preferred_slot >= 0 && opts.preferred_slot < max_holders) ? opts.preferred_slot : 0;
-            int slot_attempt, try_slot;
             
-            debug("DEBUG: Attempting to claim slot - %d active locks, %d max holders", active_locks, max_holders);
-            
-            /* Try each slot in sequence, starting with preferred slot */
-            for (slot_attempt = 0; slot_attempt < max_holders; slot_attempt++) {
-                try_slot = (start_slot + slot_attempt) % max_holders;
-                
-                debug("DEBUG: Trying slot %d (attempt %d)", try_slot, slot_attempt);
-                
+            /* If slot is free, try to claim it atomically */
+            if (slot_is_free) {
                 /* Set slot in lock info */
                 info.slot = try_slot;
                 
-                /* Create lock file with slot number - use slot-specific name for atomic claiming */
-                safe_snprintf(lock_path, sizeof(lock_path), "%s/%s.slot%d.lock",
-                              lock_dir, descriptor, try_slot);
+                /* Create temp file for atomic claiming */
                 safe_snprintf(temp_path, sizeof(temp_path), "%s/.tmp.%d.%d",
                               lock_dir, (int)info.pid, rand());
                 
@@ -318,25 +276,30 @@ int acquire_lock(const char *descriptor, int max_holders, double timeout) {
                     slot_claimed = try_slot;
                     break;
                 } else {
-                    /* Slot already taken or other error - clean up and try next slot */
-                    debug("DEBUG: Rename failed: %s (errno=%d)", strerror(errno), errno);
+                    /* Slot was claimed by another process between our check and rename */
+                    debug("DEBUG: Rename failed: %s (errno=%d) - slot was claimed by another process", strerror(errno), errno);
                     unlink(temp_path);
                     if (errno != EEXIST) {
                         /* Real error, not just slot collision */
                         error(E_SYSTEM, "Cannot create lock file: %s", strerror(errno));
                         return E_SYSTEM;
                     }
-                    debug("Slot %d already taken, trying next slot", try_slot);
+                    debug("Slot %d was claimed by another process, trying next slot", try_slot);
+                    active_locks_found++; /* Count this as an active lock now */
                 }
             }
-            
-            /* If we tried all slots and none were available, something is wrong */
-            if (slot_claimed < 0) {
-                debug("DEBUG: All slots appeared taken despite count showing availability");
-                debug("DEBUG: This suggests a race condition - will retry after backoff");
-            }
-        } else {
-            debug("DEBUG: Skipping slot claiming - all slots occupied");
+        }
+        
+        debug("DEBUG: Slot claiming complete. Found %d active locks, claimed slot: %d", 
+              active_locks_found, slot_claimed);
+        
+        /* Check if we've exceeded the maximum holders */
+        if (slot_claimed < 0 && active_locks_found >= max_holders) {
+            debug("DEBUG: All %d slots are occupied", max_holders);
+            /* All slots occupied - continue to timeout check */
+        } else if (slot_claimed < 0) {
+            debug("DEBUG: Could not claim any slot despite availability - possible race condition");
+            /* Retry after backoff */
         }
         
         if (slot_claimed >= 0) {
